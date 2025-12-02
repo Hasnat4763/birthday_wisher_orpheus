@@ -1,7 +1,10 @@
 import dotenv
 import os
-import slack_bolt
-from slack_bolt import App, response
+import time
+import schedule
+import threading
+from datetime import datetime
+from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 from database import init, connect_db
@@ -146,9 +149,46 @@ def handle_confirm_delete(ack, body, client, logger):
 def handle_cancel_delete(ack, body, client, logger):
     ack()
     logger.info(body)
-    user_id = body["channel"]["id"]
+    channel_id = body["channel"]["id"]
     ts = body["message"]["ts"]
-    client.chat_update(channel=user_id, ts=ts, text="Ok not deleting anything.")
+    client.chat_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
+
+
+def find_and_send_wishes():
+    now = datetime.now()
+    day, month = now.day, now.month
+    
+    db = connect_db()
+    cursor = db.cursor()
+    
+    cursor.execute(
+        '''
+        SELECT user_id FROM birthday_info WHERE day = ? AND month = ?
+        ''', (day, month)
+    )
+    results = cursor.fetchall()
+    db.close()
+    
+    for (user_id,) in results:
+        try:
+            app.client.chat_postMessage(
+                channel=user_id,
+                text="Happy Birthday!"
+            )
+            
+        except Exception as e:
+            print(f"Error sending birthday wish to {user_id}: {e}")
+
+
+schedule.every().day.at("12:00").do(find_and_send_wishes)
+
+def run_scheduler():
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
+        
+threading.Thread(target=run_scheduler, daemon=True).start()
+
 
 if __name__ == "__main__":
     socketmodehandler =SocketModeHandler(app, APP_TOKEN)
