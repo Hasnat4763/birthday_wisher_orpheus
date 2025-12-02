@@ -1,8 +1,10 @@
 import dotenv
 import os
-from slack_bolt import App
+import slack_bolt
+from slack_bolt import App, response
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
+from database import init, connect_db
 dotenv.load_dotenv()
 
 APP_TOKEN = os.getenv("APP_TOKEN")
@@ -11,21 +13,142 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
+init()
+
 @app.command("/birthday_register")
-def handle_birthday_register(ack, body):
+def handle_birthday_register(ack, body, respond):
+    ack()
     user_id = body["user_id"]
     text = body["text"]
     DD,MM = map(int, text.split("/"))
     if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
-        
-        ack("Invalid Date or Month Check Again.")
+        respond("Invalid Date or Month Check Again.")
         return
     else:
         if MM == 2 and DD > 29:
-            ack ("Invalid Date February only has 29 days")
+            respond("Invalid Date February only has 29 days")
             return
+        elif MM in [4, 6, 9, 11] and DD > 30:
+            respond("Invalid Date this month has 30 days only")
+            return
+        
         ack("Received")
+        
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT INTO birthday_info (user_id, day, month)
+            VALUES (?,?,?)
+            
+            """, (user_id, DD, MM)
+            )
+        db.commit()
+        db.close()
+        respond("Your Birthday has been Registered Successfully!")
+    except Exception:
+        respond("There is a problem contact someone")
     print(str(DD)+"\n"+str(MM)+"\n"+user_id)
+@app.command("/birthday_check")
+def handle_birthday_check(ack, body, respond):
+    ack()
+    user_id = body["user_id"]
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            '''
+            SELECT day, month FROM birthday_info WHERE user_id = ?
+            ''', (user_id,)
+            )
+        result = cursor.fetchone()
+        db.close()
+        print(result)
+        if result:
+            dd, mm = result
+            respond(f"You set your birthday as: {dd}/{mm}")
+        else:
+            respond("Your data doesn't exist yet.")
+    except Exception:
+        respond("There is a problem contact someone")
+        return
+
+@app.command("/birthday_delete")
+def handle_birthday_delete(ack, body):
+    ack()
+    user_id = body["user_id"]
+    app.client.chat_postMessage(
+        channel=user_id,
+        text="Are you sure you want to delete your birthday data?",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Are you sure?"
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Yes, Delete it"
+                        },
+                        "style": "danger",
+                        "action_id": "confirm_delete"
+                    }
+                ]
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "No"
+                        },
+                        "style": "primary",
+                        "action_id": "cancel_delete"
+                    }
+                ]
+            }
+        ]
+    )
+    
+    
+@app.action("confirm_delete")
+def handle_confirm_delete(ack, body, client, logger):
+    ack()
+    logger.info(body)
+    channel_id = body["channel"]["id"]
+    user_id = body["user"]["id"]
+    ts = body["message"]["ts"]
+    client.chat_update(channel=channel_id, ts=ts, text="Deleting your birthday data...")
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+        """
+        DELETE FROM birthday_info WHERE user_id = ?
+        """, (user_id,)
+        )
+        db.commit()
+        db.close()
+    except Exception as e:
+        client.chat_postMessage(channel=channel_id, text="There was a problem deleting your data." + str(e))
+    
+@app.action("cancel_delete")
+def handle_cancel_delete(ack, body, client, logger):
+    ack()
+    logger.info(body)
+    user_id = body["channel"]["id"]
+    ts = body["message"]["ts"]
+    client.chat_update(channel=user_id, ts=ts, text="Ok not deleting anything.")
 
 if __name__ == "__main__":
     socketmodehandler =SocketModeHandler(app, APP_TOKEN)
