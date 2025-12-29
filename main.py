@@ -3,7 +3,7 @@ import os
 import time
 import schedule
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
@@ -69,6 +69,7 @@ def handle_birthday_register(ack, body, respond):
             return
     
     userinfo = client.users_info(user=user_id)
+    
     if userinfo["ok"]:
         user_tz = userinfo["user"]["tz"]
         print(user_tz)
@@ -200,32 +201,43 @@ def handle_cancel_delete(ack, body, client, logger):
 
 
 def find_and_send_wishes():
-    now = datetime.now()
-    day, month = now.day, now.month
-    
+    now = datetime.now(pytz.utc)
+    today = now.date()
+    yesterday = today - timedelta(days=1)
+    tomorrow = today + timedelta(days=1)
     db = connect_db()
     cursor = db.cursor()
     
     cursor.execute(
         '''
-        SELECT user_id FROM birthday_info WHERE day = ? AND month = ? AND tz = ?
-        ''', (day, month, pytz.utc.zone)
+        SELECT user_id,day, month, tz FROM birthday_info WHERE
+        (day = ? AND month = ?) OR
+        (day = ? AND month = ?) OR
+        (day = ? AND month = ?)
+        ''', 
+        (yesterday.day, yesterday.month,
+        today.day, today.month,
+        tomorrow.day, tomorrow.month)
     )
     results = cursor.fetchall()
     db.close()
     
-    for (user_id,) in results:
+    for (user_id,day, month, tz) in results:
         try:
-            app.client.chat_postMessage(
-                channel=user_id,
-                text="Happy Birthday!"
-            )
+            user_now = datetime.now(pytz.timezone(tz))
+            if user_now.hour == 0 and user_now.day == day and user_now.month == month:
+                app.client.chat_postMessage(
+                    channel=user_id,
+                    text="Happy Birthday!"
+                )
+            else:
+                print(f"Not sending wish to {user_id} now, it's not midnight in their timezone.")
             
         except Exception as e:
             print(f"Error sending birthday wish to {user_id}: {e}")
 
 
-schedule.every().day.at("12:00").do(find_and_send_wishes)
+schedule.every().hour.do(find_and_send_wishes)
 
 def run_scheduler():
     while True:
