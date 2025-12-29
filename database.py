@@ -12,7 +12,8 @@ def init():
     CREATE TABLE IF NOT EXISTS birthday_info (
         user_id TEXT PRIMARY KEY,
         day INTEGER NOT NULL,
-        month INTEGER NOT NULL
+        month INTEGER NOT NULL,
+        tz TEXT NOT NULL
     )
     """
 )

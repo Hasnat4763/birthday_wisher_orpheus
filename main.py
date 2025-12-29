@@ -7,6 +7,7 @@ from datetime import datetime
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
+import pytz
 from database import init, connect_db
 dotenv.load_dotenv()
 
@@ -17,6 +18,38 @@ app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
 init()
+
+
+
+@app.command("/birthday_test")
+def handle_birthday_test(ack):
+    ack()
+    now = datetime.now()
+    day, month = now.day, now.month
+    
+    db = connect_db()
+    cursor = db.cursor()
+    
+    cursor.execute(
+        '''
+        SELECT user_id FROM birthday_info WHERE day = ? AND month = ?
+        ''', (day, month)
+    )
+    results = cursor.fetchall()
+    db.close()
+    
+    for (user_id,) in results:
+        try:
+            app.client.chat_postMessage(
+                channel=user_id,
+                text="Happy Birthday!"
+            )
+            
+        except Exception as e:
+            print(f"Error sending birthday wish to {user_id}: {e}")
+    
+
+
 
 @app.command("/birthday_register")
 def handle_birthday_register(ack, body, respond):
@@ -34,18 +67,27 @@ def handle_birthday_register(ack, body, respond):
         elif MM in [4, 6, 9, 11] and DD > 30:
             respond("Invalid Date this month has 30 days only")
             return
+    
+    userinfo = client.users_info(user=user_id)
+    if userinfo["ok"]:
+        user_tz = userinfo["user"]["tz"]
+        print(user_tz)
         
-        ack("Received")
+    else:
+        respond("Could not fetch user info. Please try again later.")
+        return
         
+    
+    
     try:
         db = connect_db()
         cursor = db.cursor()
         cursor.execute(
             """
-            INSERT INTO birthday_info (user_id, day, month)
-            VALUES (?,?,?)
+            INSERT INTO birthday_info (user_id, day, month, tz)
+            VALUES (?,?,?,?)
             
-            """, (user_id, DD, MM)
+            """, (user_id, DD, MM, user_tz)
             )
         db.commit()
         db.close()
@@ -53,6 +95,8 @@ def handle_birthday_register(ack, body, respond):
     except Exception:
         respond("There is a problem contact someone")
     print(str(DD)+"\n"+str(MM)+"\n"+user_id)
+    
+
 @app.command("/birthday_check")
 def handle_birthday_check(ack, body, respond):
     ack()
@@ -62,15 +106,15 @@ def handle_birthday_check(ack, body, respond):
         cursor = db.cursor()
         cursor.execute(
             '''
-            SELECT day, month FROM birthday_info WHERE user_id = ?
+            SELECT day, month, tz FROM birthday_info WHERE user_id = ?
             ''', (user_id,)
             )
         result = cursor.fetchone()
         db.close()
         print(result)
         if result:
-            dd, mm = result
-            respond(f"You set your birthday as: {dd}/{mm}")
+            dd, mm, tz = result
+            respond(f"You set your birthday as: {dd}/{mm} (Timezone: {tz})")
         else:
             respond("Your data doesn't exist yet.")
     except Exception:
@@ -154,6 +198,7 @@ def handle_cancel_delete(ack, body, client, logger):
     client.chat_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
 
 
+
 def find_and_send_wishes():
     now = datetime.now()
     day, month = now.day, now.month
@@ -163,8 +208,8 @@ def find_and_send_wishes():
     
     cursor.execute(
         '''
-        SELECT user_id FROM birthday_info WHERE day = ? AND month = ?
-        ''', (day, month)
+        SELECT user_id FROM birthday_info WHERE day = ? AND month = ? AND tz = ?
+        ''', (day, month, pytz.utc.zone)
     )
     results = cursor.fetchall()
     db.close()
