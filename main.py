@@ -96,11 +96,10 @@ def handle_birthday_register(ack, body, respond):
         cursor = db.cursor()
         cursor.execute(
             """
-            INSERT INTO birthday_info (user_id, day, month, tz)
+            INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
             VALUES (?,?,?,?)
-            
             """, (user_id, DD, MM, user_tz)
-            )
+        )
         db.commit()
         db.close()
         respond("Your Birthday has been Registered Successfully!")

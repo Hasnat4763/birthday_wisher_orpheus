@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import pytz
 
 def call_wiki_api(MM=12, DD=2, force_refresh=False):
-    init()
     if not force_refresh:
         cached = get_cached(MM, DD)
         if cached:
