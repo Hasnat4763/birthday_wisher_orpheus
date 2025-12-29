@@ -135,7 +135,7 @@ def format_birthday(info):
         message += f"\n_{desc_short}_"
     
     return message
-def clean(days=1):
+def clean(days=90):
     try:
         db = connect_db()
         cursor = db.cursor()
@@ -146,7 +146,10 @@ def clean(days=1):
             ''',
             (cutoff.isoformat(),)
         )
+        deleted_count = cursor.rowcount
         db.commit()
         db.close()
+        return deleted_count
     except Exception as e:
-        print(f"Error cleaning cache: {e}")
+        print(f"❌ Error cleaning cache: {e}")
+        return 0
