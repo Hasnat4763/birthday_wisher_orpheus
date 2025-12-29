@@ -9,6 +9,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 import pytz
 from database import init, connect_db
+from calling_api import get_random_famous, format_birthday, clean
 dotenv.load_dotenv()
 
 APP_TOKEN = os.getenv("APP_TOKEN")
@@ -22,31 +23,41 @@ init()
 
 
 @app.command("/birthday_test")
-def handle_birthday_test(ack):
+def handle_birthday_test(ack, body, respond):
     ack()
+    user_id = body["user_id"]
     now = datetime.now()
     day, month = now.day, now.month
-    
     db = connect_db()
     cursor = db.cursor()
-    
     cursor.execute(
         '''
-        SELECT user_id FROM birthday_info WHERE day = ? AND month = ?
+        SELECT user_id, tz FROM birthday_info WHERE day = ? AND month = ?
         ''', (day, month)
     )
     results = cursor.fetchall()
     db.close()
-    
-    for (user_id,) in results:
+    if not results:
+        respond(f"ℹ️ No birthdays registered for today ({day}/{month})")
+        return
+    sent_count = 0
+    for user_id, tz in results: 
         try:
-            app.client.chat_postMessage(
-                channel=user_id,
-                text="Happy Birthday!"
-            )
+            famous_person = get_random_famous(month, day)
+            famous_text = format_birthday(famous_person)
+            message = f"""🎉🎂 *Happy Birthday!* 🎈🎁 (TEST) Wishing you an amazing day filled with joy, laughter, and wonderful memories!🥳{famous_text}"""
             
-        except Exception as e:
-            print(f"Error sending birthday wish to {user_id}: {e}")
+            app. client.chat_postMessage(
+                channel=user_id,
+                text=message
+            )
+            sent_count += 1
+            print(f"✅ Test wish sent to {user_id} (TZ: {tz})")
+            
+        except Exception as e: 
+            print(f"❌ Error sending test wish to {user_id}:  {e}")
+    
+    respond(f"✅ Test complete! Sent {sent_count} birthday message(s).")
     
 
 
@@ -222,21 +233,40 @@ def find_and_send_wishes():
     results = cursor.fetchall()
     db.close()
     
-    for (user_id,day, month, tz) in results:
+    for (user_id, day, month, tz) in results:
         try:
-            user_now = datetime.now(pytz.timezone(tz))
+            if tz:
+                try:
+                    user_timezone = pytz.timezone(tz)
+                    user_now = datetime.now(user_timezone)
+                except pytz.UnknownTimeZoneError:
+                    print(f"⚠️ Unknown timezone '{tz}' for {user_id}")
+                    user_now = datetime.now(pytz.utc)
+            else:
+                user_now = datetime.now(pytz.utc)
             if user_now.hour == 0 and user_now.day == day and user_now.month == month:
+                famous_person = get_random_famous(month, day)
+                famous_text = format_birthday(famous_person)
+
+                message = f"""🎉🎂 *Happy Birthday!* 🎈🎁 Wishing you an amazing day filled with joy, laughter, and wonderful memories! 🥳{famous_text}"""
+                
                 app.client.chat_postMessage(
                     channel=user_id,
-                    text="Happy Birthday!"
+                    text=message
                 )
-            else:
-                print(f"Not sending wish to {user_id} now, it's not midnight in their timezone.")
+                print(f"✅ Sent birthday wish to {user_id} at {user_now.strftime('%Y-%m-%d %H:%M %Z')}")
             
         except Exception as e:
-            print(f"Error sending birthday wish to {user_id}: {e}")
+            print(f"❌ Error processing {user_id}: {e}")
 
 
+def daily_cleanup():
+    """Clean old cache entries daily"""
+    print(f"\n🗑️ Running daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    deleted = clean(days=90)
+    print(f"✅ Cleaned {deleted} old entries")
+
+schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
 
 def run_scheduler():

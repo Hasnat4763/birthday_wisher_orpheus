@@ -16,6 +16,23 @@ def init():
         tz TEXT NOT NULL
     )
     """
-)
+    )
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS wiki_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        year TEXT,
+        name TEXT NOT NULL,
+        description TEXT,
+        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(day, month, name)
+    )
+    """
+    )
     db.commit()
     db.close()
+
+if __name__ == "__main__":
+    init()
