@@ -1,5 +1,4 @@
 import sqlite3
-
 def connect_db():
     conn = sqlite3.connect("Database/birthdays.db")
     return conn
@@ -18,7 +17,7 @@ def init():
     """
     )
     cursor.execute(
-        """
+    """
     CREATE TABLE IF NOT EXISTS wiki_cache (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         day INTEGER NOT NULL,
@@ -31,8 +30,33 @@ def init():
     )
     """
     )
+    cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS birthday_threads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL UNIQUE,
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+    )
+    cursor.execute(
+    """
+    CREATE INDEX IF NOT EXISTS idx_wiki_date 
+    ON wiki_cache(month, day)
+    """)
+    
+    cursor.execute(
+    """
+    CREATE INDEX IF NOT EXISTS idx_thread_date 
+    ON birthday_threads(date)
+    """)
+    
     db.commit()
     db.close()
+    print("✅ Database initialized!")
 
-if __name__ == "__main__":
+
+if __name__ == "__main__": 
     init()

@@ -15,7 +15,7 @@ dotenv.load_dotenv()
 APP_TOKEN = os.getenv("APP_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BIRTHDAY_CHANNEL = os.getenv("BIRTHDAY_CHANNEL_ID")
-
+ADMIN = os.getenv("ADMIN_USER_ID")
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
@@ -24,43 +24,86 @@ init()
 
 
 @app.command("/birthday_test")
+
 def handle_birthday_test(ack, body, respond):
     ack()
+    
     user_id = body["user_id"]
-    now = datetime.now()
-    day, month = now.day, now.month
+
+    if user_id != ADMIN:
+        respond("This command is only available to administrators.")
+        return
+    text = body.get("text", "").strip()
+    if text: 
+        try:
+            DD, MM = map(int, text. split("/"))
+            test_day, test_month = DD, MM
+        except:
+            respond("Invalid format!  Use: `/birthday_test DD/MM` or leave empty for today")
+            return
+    else: 
+        now = datetime.now()
+        test_day, test_month = now.day, now.month
+    
     db = connect_db()
     cursor = db.cursor()
     cursor.execute(
         '''
-        SELECT user_id, tz FROM birthday_info WHERE day = ? AND month = ?
-        ''', (day, month)
+        SELECT user_id, tz FROM birthday_info WHERE day = ? AND month = ? 
+        ''', (test_day, test_month)
     )
     results = cursor.fetchall()
     db.close()
-    if not results:
-        respond(f"No birthdays registered for today ({day}/{month})")
+    
+    if not results: 
+        respond(f"No birthdays registered for {test_day}/{test_month}")
         return
-    sent_count = 0
-    for user_id, tz in results: 
+    
+    respond(f"Starting test for {test_day}/{test_month} birthdays...")
+
+    thread_ts = None
+    if BIRTHDAY_CHANNEL:
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        thread_ts = get_or_create_daily_thread(today_str)
+    
+    sent_dm_count = 0
+    sent_channel_count = 0
+    
+    for test_user_id, tz in results:
         try:
-            famous_person = get_random_famous(month, day)
+            famous_person = get_random_famous(test_month, test_day)
             famous_text = format_birthday(famous_person)
-            message = f"""🎉🎂 *Happy Birthday!* 🎈🎁 (TEST)
-            Wishing you an amazing day filled with joy, laughter,
-            and wonderful memories!🥳{famous_text}"""
-            app. client.chat_postMessage(
-                channel=user_id,
-                text=message
+            dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁 (TEST)
+
+Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
+
+From your Slack team! 🥳{famous_text}"""
+            
+            app.client. chat_postMessage(
+                channel=test_user_id,
+                text=dm_message
             )
-            sent_count += 1
-            print(f"✅ Test wish sent to {user_id} (TZ: {tz})")
+            sent_dm_count += 1
+            print(f"✅ Test DM sent to {test_user_id}")
+            if thread_ts:
+                send_birthday_to_thread(test_user_id, famous_person, thread_ts)
+                sent_channel_count += 1
+                print(f"✅ Test channel post sent for {test_user_id}")
             
         except Exception as e: 
-            print(f"❌ Error sending test wish to {user_id}:  {e}")
+            print(f"❌ Error sending test wish to {test_user_id}:  {e}")
+    result_msg = f"*Test Complete!*\n\n"
+    result_msg += f"Date tested: {test_day}/{test_month}\n"
+    result_msg += f"DMs sent: {sent_dm_count}\n"
     
-    respond(f"✅ Test complete! Sent {sent_count} birthday message(s).")
+    if BIRTHDAY_CHANNEL:
+        result_msg += f"Channel posts: {sent_channel_count}\n"
+        if thread_ts:
+            result_msg += f"Posted to thread in <#{BIRTHDAY_CHANNEL}>"
+    else:
+        result_msg += f"⚠️ Channel announcements disabled (BIRTHDAY_CHANNEL not set)"
     
+    respond(result_msg)
 
 
 
@@ -210,6 +253,107 @@ def handle_cancel_delete(ack, body, client, logger):
     ts = body["message"]["ts"]
     client.chat_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
 
+def get_or_create_daily_thread(date_str):
+    if not BIRTHDAY_CHANNEL:
+        return None
+    
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            "SELECT thread_ts FROM birthday_threads WHERE date = ?  AND channel_id = ?",
+            (date_str, BIRTHDAY_CHANNEL)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            thread_ts = result[0]
+            print(f"✅ Using existing thread for {date_str}")
+        else:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            formatted_date = date_obj.strftime('%B %d, %Y')  # e.g., "December 29, 2025"
+            
+            response = app.client.chat_postMessage(
+                channel=BIRTHDAY_CHANNEL,
+                text=f"🎉🎂 *Birthdays Today - {formatted_date}* 🎈🎁",
+                blocks=[
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"🎉 Birthdays Today - {formatted_date}",
+                            "emoji": True
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Happy birthday to our amazing team members! 🥳\n_Check the thread below for individual wishes_ 👇"
+                        }
+                    }
+                ]
+            )
+            
+            thread_ts = response['ts']
+            cursor.execute(
+                """
+                INSERT INTO birthday_threads (date, channel_id, thread_ts)
+                VALUES (?, ?, ?)
+                """,
+                (date_str, BIRTHDAY_CHANNEL, thread_ts)
+            )
+            db.commit()
+            print(f"✅ Created new thread for {date_str}")
+        
+        db.close()
+        return thread_ts
+        
+    except Exception as e:
+        print(f"Error managing thread:  {e}")
+        if db:
+            db.close()
+        return None
+
+
+def send_birthday_to_thread(user_id, famous_person, thread_ts):
+    if not BIRTHDAY_CHANNEL or not thread_ts:
+        return
+    
+    try:
+        famous_text = ""
+        if famous_person: 
+            name = famous_person.get("name", "Unknown")
+            year = famous_person.get("year", "")
+            description = famous_person.get("description", "")
+            
+            famous_text = f"\n\n🌟 *You share your birthday with {name}"
+            if year:
+                famous_text += f" (born {year})"
+            famous_text += "! *"
+            
+            if description: 
+                sentences = description.split('. ')
+                desc_short = sentences[0]
+                if len(desc_short) > 200:
+                    desc_short = desc_short[:197] + "..."
+                elif not desc_short. endswith('.'):
+                    desc_short += "."
+                famous_text += f"\n_{desc_short}_"
+        message = f"""🎂 Happy Birthday <@{user_id}>!  🎉
+
+Wishing you an amazing day filled with joy, laughter, and wonderful memories!{famous_text}"""
+        
+        app.client.chat_postMessage(
+            channel=BIRTHDAY_CHANNEL,
+            thread_ts=thread_ts,
+            text=message
+        )
+        print(f"✅ Posted birthday wish for {user_id} in thread")
+        
+    except Exception as e:
+        print(f"Error posting to thread: {e}")
+
 
 def find_and_send_wishes():
     """Check for birthdays and send wishes"""
@@ -237,9 +381,11 @@ def find_and_send_wishes():
     results = cursor.fetchall()
     db.close()
     
-    print(f"📋 Checking {len(results)} user(s)")
-    
-    birthday_users = []  # Track who has birthdays today
+    print(f"Checking {len(results)} user(s)")
+    thread_ts = None
+    if BIRTHDAY_CHANNEL:
+        today_str = today.strftime('%Y-%m-%d')
+        thread_ts = get_or_create_daily_thread(today_str)
     
     for (user_id, day, month, tz) in results:
         try:
@@ -254,72 +400,40 @@ def find_and_send_wishes():
                 user_now = datetime.now(pytz.utc)
             
             if user_now.hour == 0 and user_now.day == day and user_now.month == month:
-                # Get famous person
                 famous_person = get_random_famous(month, day)
                 famous_text = format_birthday(famous_person)
-                
-                # Send DM to birthday person
-                dm_message = f"""🎉🎂 *Happy Birthday!* 🎈🎁
+                dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
 
 Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
-
-From your Slack team!  🥳{famous_text}"""
-                
-                app. client.chat_postMessage(
+🥳{famous_text}"""
+                app.client.chat_postMessage(
                     channel=user_id,
                     text=dm_message
                 )
                 print(f"✅ Sent DM to {user_id}")
-                
-                # Add to list for channel announcement
-                birthday_users.append({
-                    'user_id':  user_id,
-                    'famous':  famous_person
-                })
+                if thread_ts: 
+                    send_birthday_to_thread(user_id, famous_person, thread_ts)
         
         except Exception as e:
-            print(f"❌ Error processing {user_id}: {e}")
-    
-    # Send channel announcement if configured and there are birthdays
-    if BIRTHDAY_CHANNEL and birthday_users: 
-        send_channel_announcement(birthday_users)
-
-
-def send_channel_announcement(birthday_users):
-    """Send birthday announcement to public channel"""
-    try:
-        if len(birthday_users) == 1:
-            user_id = birthday_users[0]['user_id']
-            message = f"🎉🎂 Happy Birthday to <@{user_id}>! 🎈🎁\n\nWishing you an amazing day!"
-        else:
-            # Multiple birthdays
-            users_mentions = ", ".join([f"<@{u['user_id']}>" for u in birthday_users])
-            message = f"🎉🎂 Happy Birthday to {users_mentions}! 🎈🎁\n\nWishing you all an amazing day!"
-        
-        if BIRTHDAY_CHANNEL:
-            app.client.chat_postMessage(
-                channel=BIRTHDAY_CHANNEL,
-                text=message
-            )
-        print(f"✅ Sent channel announcement for {len(birthday_users)} birthday(s)")
-        
-    except Exception as e: 
-        print(f"❌ Error sending channel announcement: {e}")
+            print(f"Error processing {user_id}: {e}")
 
 def daily_cleanup():
-    """Clean old cache entries daily"""
-    print(f"\n🗑️ Running daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"\nRunning daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     deleted = clean(days=90)
-    print(f"✅ Cleaned {deleted} old entries")
+    print(f"Cleaned {deleted} old entries")
 
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
 
 def run_scheduler():
+    print("\nScheduler started!")
+    print("  Birthday checks:  Every hour")
+    print("  Cache cleanup: Daily at 03:00 UTC")
+    print("  Thread cleanup: Daily at 03:00 UTC\n")
     while True:
         schedule.run_pending()
         time.sleep(60)
-        
+    
 threading.Thread(target=run_scheduler, daemon=True).start()
 
 
