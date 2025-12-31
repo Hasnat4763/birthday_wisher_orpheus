@@ -356,7 +356,6 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!{fa
 
 
 def find_and_send_wishes():
-    """Check for birthdays and send wishes"""
     now = datetime.now(pytz.utc)
     today = now.date()
     yesterday = today - timedelta(days=1)
@@ -399,7 +398,7 @@ def find_and_send_wishes():
             else:
                 user_now = datetime.now(pytz.utc)
             
-            if user_now.hour == 0 and user_now.day == day and user_now.month == month:
+            if (user_now.hour >= 0 and user_now. hour < 1) and user_now.day == day and user_now.month == month:
                 famous_person = get_random_famous(month, day)
                 famous_text = format_birthday(famous_person)
                 dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
