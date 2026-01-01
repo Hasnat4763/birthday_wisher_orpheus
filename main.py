@@ -440,9 +440,8 @@ def find_and_send_wishes():
                         famous_person = get_random_famous(month, day)
                         famous_text = format_birthday(famous_person)
                         dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
-
-                        Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
-                        🥳{famous_text}"""
+Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
+🥳{famous_text}"""
                         
                         app.client.chat_postMessage(
                             channel=user_id,
