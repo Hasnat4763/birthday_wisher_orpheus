@@ -51,7 +51,7 @@ def init():
                         day INTEGER NOT NULL,
                         status BOOLEAN DEFAULT 0,
                         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(user_id, year, motnth, day)
+                        UNIQUE(user_id, year, month, day)
                    )
                    """)
     
