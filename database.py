@@ -41,6 +41,20 @@ def init():
     )
     """
     )
+    
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS birthday_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
+                        year INTEGER NOT NULL,
+                        month INTEGER NOT NULL,
+                        day INTEGER NOT NULL,
+                        status BOOLEAN DEFAULT 0,
+                        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, year, motnth, day)
+                   )
+                   """)
+    
     cursor.execute(
     """
     CREATE INDEX IF NOT EXISTS idx_wiki_date 

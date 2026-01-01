@@ -315,6 +315,42 @@ def get_or_create_daily_thread(date_str):
             db.close()
         return None
 
+def log_wished(user_id, year, month, day, status=True):
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+    """INSERT OR REPLACE INTO birthday_log (user_id, year, month, day, status, time)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """,
+        (user_id, year, month, day, status)
+        )
+        db.commit()
+        db.close()
+        return True
+    except Exception as e:
+        print(f"Error logging wished status: {e}")
+        if db:
+            db.close()
+        return False
+
+def check_if_wished(user_id, year, month, day):
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            '''
+            SELECT status FROM birthday_log
+            WHERE user_id = ? AND year = ? AND month = ? AND day = ?
+            ''',
+            (user_id, year, month, day)
+        )
+        result = cursor.fetchone()
+        db.close()
+        return bool(result and result[0])
+    except Exception as e:
+        print(f"Error checking wished status: {e}")
+        return False
 
 def send_birthday_to_thread(user_id, famous_person, thread_ts):
     if not BIRTHDAY_CHANNEL or not thread_ts:
@@ -361,7 +397,7 @@ def find_and_send_wishes():
     yesterday = today - timedelta(days=1)
     tomorrow = today + timedelta(days=1)
     
-    print(f"\n🔍 Birthday check at {now.strftime('%Y-%m-%d %H:%M')} UTC")
+    print(f"\n🔍 Birthday check at {now. strftime('%Y-%m-%d %H:%M')} UTC")
     
     db = connect_db()
     cursor = db.cursor()
@@ -373,49 +409,65 @@ def find_and_send_wishes():
         (day = ? AND month = ?) OR
         (day = ? AND month = ?)
         ''', 
-        (yesterday.day, yesterday.month,
+        (yesterday.day, yesterday. month,
          today.day, today.month,
-         tomorrow.day, tomorrow. month)
+         tomorrow. day, tomorrow. month)
     )
     results = cursor.fetchall()
     db.close()
     
     print(f"Checking {len(results)} user(s)")
     thread_ts = None
-    if BIRTHDAY_CHANNEL:
-        today_str = today.strftime('%Y-%m-%d')
+    if BIRTHDAY_CHANNEL: 
+        today_str = today. strftime('%Y-%m-%d')
         thread_ts = get_or_create_daily_thread(today_str)
     
     for (user_id, day, month, tz) in results:
         try:
             if tz:
-                try:
-                    user_timezone = pytz.timezone(tz)
+                try: 
+                    user_timezone = pytz. timezone(tz)
                     user_now = datetime.now(user_timezone)
                 except pytz.UnknownTimeZoneError:
                     print(f"⚠️ Unknown timezone '{tz}' for {user_id}")
                     user_now = datetime.now(pytz.utc)
             else:
-                user_now = datetime.now(pytz.utc)
-            
-            if (user_now.hour >= 0 and user_now.hour < 2) and user_now.day == day and user_now.month == month:
-                famous_person = get_random_famous(month, day)
-                famous_text = format_birthday(famous_person)
-                dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
+                user_now = datetime. now(pytz.utc)
+            if user_now.day == day and user_now.month == month:
+                if not check_if_wished(user_id, user_now. year, month, day):
+                    wish_success = False
+                    try:
+                        famous_person = get_random_famous(month, day)
+                        famous_text = format_birthday(famous_person)
+                        dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
 
-Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
-🥳{famous_text}"""
-                app.client.chat_postMessage(
-                    channel=user_id,
-                    text=dm_message
-                )
-                print(f"✅ Sent DM to {user_id}")
-                if thread_ts: 
-                    send_birthday_to_thread(user_id, famous_person, thread_ts)
+                        Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
+                        🥳{famous_text}"""
+                        
+                        app.client.chat_postMessage(
+                            channel=user_id,
+                            text=dm_message
+                        )
+                        print(f"✅ Sent DM to {user_id}")
+                        
+                        if thread_ts:  
+                            send_birthday_to_thread(user_id, famous_person, thread_ts)
+                        
+                        wish_success = True
+                        
+                    except Exception as send_error: 
+                        print(f"❌ Error sending wish to {user_id}: {send_error}")
+                        wish_success = False
+                    
+                    finally: 
+                        log_result = log_wished(user_id, user_now. year, month, day, status=wish_success)
+                        if not log_result:
+                            print(f"⚠️ Warning: Failed to log wish for {user_id}")
+                else:
+                    print(f"⏭️ Already wished {user_id} on {day}/{month}/{user_now.year}, skipping")
         
         except Exception as e:
-            print(f"Error processing {user_id}: {e}")
-
+            print(f"❌ Error processing {user_id}: {e}")
 def daily_cleanup():
     print(f"\nRunning daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     deleted = clean(days=90)
