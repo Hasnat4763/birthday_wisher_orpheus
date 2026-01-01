@@ -398,7 +398,7 @@ def find_and_send_wishes():
             else:
                 user_now = datetime.now(pytz.utc)
             
-            if user_now.hour >= 0 and user_now.day == day and user_now.month == month:
+            if (user_now.hour >= 0 and user_now.hour < 2) and user_now.day == day and user_now.month == month:
                 famous_person = get_random_famous(month, day)
                 famous_text = format_birthday(famous_person)
                 dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
