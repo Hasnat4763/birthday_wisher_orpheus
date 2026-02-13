@@ -114,6 +114,8 @@ def handle_bwo_register(ack, body, respond):
         return
     text = body["text"]
     USER_ID, DayMonth = text.split()
+    print(USER_ID, DayMonth)
+    USER_ID, Gibberish = USER_ID.split("|")
     USER_ID = USER_ID.strip("<>@|")
     DD, MM = map(int, DayMonth.split("/"))
     if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
@@ -149,7 +151,7 @@ def handle_bwo_register(ack, body, respond):
         )
         db.commit()
         db.close()
-        respond("Your Birthday has been Registered Successfully!")
+        respond(Gibberish + " Birthday has been Registered Successfully!")
     except Exception:
         respond("There is a problem contact someone")
     print(str(DD)+"\n"+str(MM)+"\n"+USER_ID)
