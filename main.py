@@ -30,7 +30,7 @@ def handle_birthday_test(ack, body, respond):
     
     user_id = body["user_id"]
 
-    if user_id != ADMIN:
+    if user_id not in ADMIN:
         respond("This command is only available to administrators.")
         return
     text = body.get("text", "").strip()
@@ -109,12 +109,12 @@ From your Slack team! 🥳{famous_text}"""
 def handle_bwo_register(ack, body, respond):
     ack()
     user_id = body["user_id"]
-    if user_id != ADMIN:
+    if user_id not in ADMIN:
         respond("This command is only available to administrators.")
         return
     text = body["text"]
     USER_ID, DayMonth = text.split()
-    
+    USER_ID = USER_ID.strip("<>@")
     DD, MM = map(int, DayMonth.split("/"))
     if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
         respond("Invalid Date or Month Check Again.")
