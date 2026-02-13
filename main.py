@@ -105,7 +105,55 @@ From your Slack team! 🥳{famous_text}"""
     
     respond(result_msg)
 
-
+@app.command("/bwo_register")
+def handle_bwo_register(ack, body, respond):
+    ack()
+    user_id = body["user_id"]
+    if user_id != ADMIN:
+        respond("This command is only available to administrators.")
+        return
+    text = body["text"]
+    USER_ID, DayMonth = text.split()
+    
+    DD, MM = map(int, DayMonth.split("/"))
+    if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
+        respond("Invalid Date or Month Check Again.")
+        return
+    else:
+        if MM == 2 and DD > 29:
+            respond("Invalid Date February only has 29 days")
+            return
+        elif MM in [4, 6, 9, 11] and DD > 30:
+            respond("Invalid Date this month has 30 days only")
+            return
+    userinfo = client.users_info(user=USER_ID)
+    
+    if userinfo["ok"]:
+        user_tz = userinfo["user"]["tz"]
+        print(user_tz)
+        
+    else:
+        respond("Could not fetch user info. Please try again later.")
+        return
+        
+    
+    
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
+            VALUES (?,?,?,?)
+            """, (USER_ID, DD, MM, user_tz)
+        )
+        db.commit()
+        db.close()
+        respond("Your Birthday has been Registered Successfully!")
+    except Exception:
+        respond("There is a problem contact someone")
+    print(str(DD)+"\n"+str(MM)+"\n"+USER_ID)
+    
 
 @app.command("/birthday_register")
 def handle_birthday_register(ack, body, respond):
@@ -289,7 +337,7 @@ def get_or_create_daily_thread(date_str):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "Happy birthday to our amazing team members! 🥳\n_Check the thread below for individual wishes_ 👇"
+                            "text": "Happy birthday to our amazing Hack Clubbers! 🥳\n_Check the thread below for individual wishes_ 👇"
                         }
                     }
                 ]
