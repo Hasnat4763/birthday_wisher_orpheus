@@ -198,8 +198,8 @@ def handle_birthday_register(ack, body, respond):
         db.commit()
         db.close()
         respond("Your Birthday has been Registered Successfully!")
-    except Exception:
-        respond("There is a problem contact someone")
+    except Exception as e:
+        respond(f"There is a problem contact someone: {e}")
     print(str(DD)+"\n"+str(MM)+"\n"+user_id)
     
 
@@ -226,6 +226,43 @@ def handle_birthday_check(ack, body, respond):
     except Exception:
         respond("There is a problem contact someone")
         return
+
+@app.command("/birthday_list")
+def handle_birthday_list(ack, body, respond):
+    ack()
+    user_id = body["user_id"]
+
+    if user_id not in ADMIN:
+        respond("This command is only available to administrators.")
+        return
+
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            SELECT user_id, day, month, tz
+            FROM birthday_info
+            ORDER BY month ASC, day ASC
+            """
+        )
+        rows = cursor.fetchall()
+        db.close()
+
+        if not rows:
+            respond("No birthdays are registered yet.")
+            return
+
+        lines = ["*Registered birthdays (sorted):*"]
+        for uid, day, month, tz in rows:
+            tz_display = tz if tz else "Unknown"
+            lines.append(f"• <@{uid}> — {day:02d}/{month:02d} — `{tz_display}`")
+
+        respond("\n".join(lines))
+
+    except Exception as e:
+        respond("There was a problem fetching the birthday list: " + str(e))
+
 
 @app.command("/birthday_delete")
 def handle_birthday_delete(ack, body):
