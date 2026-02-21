@@ -468,8 +468,8 @@ def find_and_send_wishes():
     
     print(f"Checking {len(results)} user(s)")
     thread_ts = None
-    if BIRTHDAY_CHANNEL: 
-        today_str = today. strftime('%Y-%m-%d')
+    if BIRTHDAY_CHANNEL and results: 
+        today_str = today.strftime('%Y-%m-%d')
         thread_ts = get_or_create_daily_thread(today_str)
     
     for (user_id, day, month, tz) in results:
