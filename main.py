@@ -19,12 +19,16 @@ ADMIN = os.getenv("ADMIN_USER_ID")
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
+
+hour = 1
+streak_checked = False
+
+
 init()
 
 
 
 @app.command("/birthday_test")
-
 def handle_birthday_test(ack, body, respond):
     ack()
     
@@ -130,9 +134,9 @@ def handle_bwo_register(ack, body, respond):
             return
     userinfo = client.users_info(user=USER_ID)
     
-    if userinfo["ok"]:
-        user_tz = userinfo["user"]["tz"]
-        print(user_tz)
+    if userinfo and userinfo.get("ok") and userinfo.get("user"):
+        user_obj = userinfo.get("user")
+        user_tz = user_obj.get("tz") if user_obj else None
         
     else:
         respond("Could not fetch user info. Please try again later.")
@@ -176,8 +180,9 @@ def handle_birthday_register(ack, body, respond):
     
     userinfo = client.users_info(user=user_id)
     
-    if userinfo["ok"]:
-        user_tz = userinfo["user"]["tz"]
+    if userinfo and userinfo.get("ok") and userinfo.get("user"):
+        user_obj = userinfo.get("user")
+        user_tz = user_obj.get("tz") if user_obj else None
         print(user_tz)
         
     else:
@@ -341,9 +346,9 @@ def handle_cancel_delete(ack, body, client, logger):
     client.chat_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
 
 def get_or_create_daily_thread(date_str):
+    db = None
     if not BIRTHDAY_CHANNEL:
         return None
-    
     try:
         db = connect_db()
         cursor = db.cursor()
@@ -403,6 +408,7 @@ def get_or_create_daily_thread(date_str):
         return None
 
 def log_wished(user_id, year, month, day, status=True):
+    db = None
     try:
         db = connect_db()
         cursor = db.cursor()
@@ -479,6 +485,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!{fa
 
 
 def find_and_send_wishes():
+    global streak_checked, hour
     now = datetime.now(pytz.utc)
     today = now.date()
     yesterday = today - timedelta(days=1)
@@ -505,6 +512,19 @@ def find_and_send_wishes():
     
     print(f"Checking {len(results)} user(s)")
     thread_ts = None
+    if hour < 24 and not streak_checked:
+        hour += 1
+        streak_checked = True
+        if results == []:
+            run_birthday_not_celebrated_streak(celebrated_today=False)
+        else:
+            run_birthday_not_celebrated_streak(celebrated_today=True)
+    elif hour >= 24:
+        hour = 1
+        streak_checked = False
+    else:
+        hour += 1
+        
     if BIRTHDAY_CHANNEL and results: 
         today_str = today.strftime('%Y-%m-%d')
         thread_ts = get_or_create_daily_thread(today_str)
@@ -561,6 +581,35 @@ def daily_cleanup():
 
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
+
+def run_birthday_not_celebrated_streak(celebrated_today):
+    db = connect_db()
+    cursor = db.cursor()
+    cursor.execute(
+        '''
+        SELECT streak FROM birthday_not_celebrated_streak
+        '''
+    )
+    result = cursor.fetchone()
+    current_streak = result[0] if result else 0
+    if BIRTHDAY_CHANNEL:
+        if celebrated_today:
+            current_streak = 0
+            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, text=f"BIRTHDAYS CELEBRATED TODAY! Streak has been reset to 0. (For Now)")
+        else:
+            current_streak = result[0] if result else 0
+            current_streak += 1
+            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, text=f"NO BIRTHDAYS CELEBRATED TODAY! Current Streak of uncelebrated days: {current_streak}")
+    cursor.execute(
+        '''
+        INSERT OR REPLACE INTO birthday_not_celebrated_streak (id, streak)
+        VALUES (1, ?)
+        ''', 
+        (current_streak,))
+    db.commit()
+    db.close()
+    
+
 
 def run_scheduler():
     print("\nScheduler started!")

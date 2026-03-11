@@ -51,8 +51,7 @@ def init():
                         day INTEGER NOT NULL,
                         status BOOLEAN DEFAULT 0,
                         time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(user_id, year, month, day)
-                   )
+                        UNIQUE(user_id, year, month, day))
                    """)
     
     cursor.execute(
@@ -66,6 +65,12 @@ def init():
     CREATE INDEX IF NOT EXISTS idx_thread_date 
     ON birthday_threads(date)
     """)
+    
+    cursor.execute(
+        '''
+        CREATE INDEX IF NOT EXISTS birthday_not_celebrated_streak
+        '''
+    )
     
     db.commit()
     db.close()
