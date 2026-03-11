@@ -68,7 +68,10 @@ def init():
     
     cursor.execute(
         '''
-        CREATE INDEX IF NOT EXISTS birthday_not_celebrated_streak
+        CREATE TABLE IF NOT EXISTS birthday_not_celebrated_streak (
+            id INTEGER PRIMARY KEY,
+            streak INTEGER NOT NULL DEFAULT 0
+        )
         '''
     )
     

@@ -1,4 +1,4 @@
-import dotenv
+from dotenv import load_dotenv
 import os
 import time
 import schedule
@@ -10,7 +10,7 @@ from slack_sdk import WebClient
 import pytz
 from database import init, connect_db
 from calling_api import get_random_famous, format_birthday, clean
-dotenv.load_dotenv()
+load_dotenv()
 
 APP_TOKEN = os.getenv("APP_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -20,13 +20,9 @@ app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
 
-hour = 1
-streak_checked = False
-
-
 init()
 
-
+last_day_without_birthdays = None
 
 @app.command("/birthday_test")
 def handle_birthday_test(ack, body, respond):
@@ -485,7 +481,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!{fa
 
 
 def find_and_send_wishes():
-    global streak_checked, hour
+    global last_day_without_birthdays
     now = datetime.now(pytz.utc)
     today = now.date()
     yesterday = today - timedelta(days=1)
@@ -512,19 +508,7 @@ def find_and_send_wishes():
     
     print(f"Checking {len(results)} user(s)")
     thread_ts = None
-    if hour < 24 and not streak_checked:
-        hour += 1
-        streak_checked = True
-        if results == []:
-            run_birthday_not_celebrated_streak(celebrated_today=False)
-        else:
-            run_birthday_not_celebrated_streak(celebrated_today=True)
-    elif hour >= 24:
-        hour = 1
-        streak_checked = False
-    else:
-        hour += 1
-        
+
     if BIRTHDAY_CHANNEL and results: 
         today_str = today.strftime('%Y-%m-%d')
         thread_ts = get_or_create_daily_thread(today_str)
@@ -574,6 +558,22 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
         
         except Exception as e:
             print(f"❌ Error processing {user_id}: {e}")
+    
+    if last_day_without_birthdays != today:
+        last_day_without_birthdays = today
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
+            '''SELECT COUNT(*) FROM birthday_info WHERE day = ? AND month = ?'''
+            ,(today.day, today.month)
+        )
+        count = cursor.fetchone()[0]
+        db.close()
+        if count == 0:
+            run_birthday_not_celebrated_streak(celebrated_today=False)
+        else:
+            run_birthday_not_celebrated_streak(celebrated_today=True)
+    
 def daily_cleanup():
     print(f"\nRunning daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     deleted = clean(days=90)
