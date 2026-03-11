@@ -16,6 +16,14 @@ APP_TOKEN = os.getenv("APP_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BIRTHDAY_CHANNEL = os.getenv("BIRTHDAY_CHANNEL_ID")
 ADMIN = os.getenv("ADMIN_USER_ID")
+ADMINS = [admin.strip() for admin in ADMIN.split(",")] if ADMIN else []
+
+assert APP_TOKEN, "APP_TOKEN has not been set"
+assert BOT_TOKEN, "BOT_TOKEN has not been set"
+assert BIRTHDAY_CHANNEL, "BIRTHDAY_CHANNEL_ID has not been set"
+assert ADMIN, "ADMIN_USER_ID has not been set"
+
+
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
@@ -30,7 +38,7 @@ def handle_birthday_test(ack, body, respond):
     
     user_id = body["user_id"]
 
-    if user_id not in ADMIN:
+    if user_id not in ADMINS:
         respond("This command is only available to administrators.")
         return
     text = body.get("text", "").strip()
@@ -109,7 +117,7 @@ From your Slack team! 🥳{famous_text}"""
 def handle_bwo_register(ack, body, respond):
     ack()
     user_id = body["user_id"]
-    if user_id not in ADMIN:
+    if user_id not in ADMINS:
         respond("This command is only available to administrators.")
         return
     text = body["text"]
@@ -233,7 +241,7 @@ def handle_birthday_list(ack, body, respond):
     ack()
     user_id = body["user_id"]
 
-    if user_id not in ADMIN:
+    if user_id not in ADMINS:
         respond("This command is only available to administrators.")
         return
 
@@ -579,8 +587,7 @@ def daily_cleanup():
     deleted = clean(days=90)
     print(f"Cleaned {deleted} old entries")
 
-schedule.every().day.at("03:00").do(daily_cleanup)
-schedule.every().hour.do(find_and_send_wishes)
+
 
 def run_birthday_not_celebrated_streak(celebrated_today):
     db = connect_db()
@@ -595,11 +602,21 @@ def run_birthday_not_celebrated_streak(celebrated_today):
     if BIRTHDAY_CHANNEL:
         if celebrated_today:
             current_streak = 0
-            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, text=f"BIRTHDAYS CELEBRATED TODAY! Streak has been reset to 0. (For Now)")
+            streak_message = f"BIRTHDAYS CELEBRATED TODAY! Streak has been reset to 0. (For Now)"
         else:
             current_streak = result[0] if result else 0
-            current_streak += 1
-            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, text=f"NO BIRTHDAYS CELEBRATED TODAY! Current Streak of uncelebrated days: {current_streak}")
+            if current_streak == 0:
+                current_streak = 1
+                streak_message = f"""Streak Activated!
+Today is {datetime.now().strftime('%d %B, %Y')} and
+No birthdays were celebrated today and thus brought up the streak from {current_streak - 1} to {current_streak}."""
+            else:
+                current_streak += 1
+                streak_message = f"""Streak Continues!
+Today is {datetime.now().strftime('%d %B, %Y')} and
+No birthdays were celebrated today and thus brought up the streak from {current_streak - 1} to {current_streak}."""
+            
+        app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, text=streak_message)
     cursor.execute(
         '''
         INSERT OR REPLACE INTO birthday_not_celebrated_streak (id, streak)
@@ -608,8 +625,40 @@ def run_birthday_not_celebrated_streak(celebrated_today):
         (current_streak,))
     db.commit()
     db.close()
-    
 
+
+def monthly_birthdays():
+    date = datetime.now().date()
+    month = None
+    if date.day == 1 or date.day == 15:
+        month = datetime.now().month
+    else:
+        return
+
+    db = connect_db()
+    cursor = db.cursor()
+    cursor.execute(
+        '''
+        SELECT user_id, day, month FROM birthday_info WHERE month = ?
+        ''', (month,)
+    )
+    results = cursor.fetchall()
+    cursor.close()
+    db.close()
+    if not results:
+        return
+    birthdays_in_month = len(results)
+    birthday_list_message = f"🎉 Birthdays this month: {birthdays_in_month} 🎂 \n They have birthdays on this month:\n"
+    for uid, day, month in results:
+        birthday_list_message += f"• <@{uid}> - {day}/{month}\n"
+    app.client.chat_postMessage(
+        channel=BIRTHDAY_CHANNEL,
+        text=birthday_list_message
+    )
+
+schedule.every().day.at("03:00").do(daily_cleanup)
+schedule.every().hour.do(find_and_send_wishes)
+schedule.every().day.at("00:00").do(monthly_birthdays)
 
 def run_scheduler():
     print("\nScheduler started!")
