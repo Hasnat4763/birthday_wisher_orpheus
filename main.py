@@ -1,6 +1,9 @@
+import re
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
 import time
+import requests
 import schedule
 import threading
 from datetime import datetime, timedelta
@@ -17,11 +20,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 BIRTHDAY_CHANNEL = os.getenv("BIRTHDAY_CHANNEL_ID")
 ADMIN = os.getenv("ADMIN_USER_ID")
 ADMINS = [admin.strip() for admin in ADMIN.split(",")] if ADMIN else []
+CANVAS_ID = os.getenv("CANVAS_FILE_ID")
 
 assert APP_TOKEN, "APP_TOKEN has not been set"
 assert BOT_TOKEN, "BOT_TOKEN has not been set"
 assert BIRTHDAY_CHANNEL, "BIRTHDAY_CHANNEL_ID has not been set"
 assert ADMIN, "ADMIN_USER_ID has not been set"
+assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
 
 
 app = App(token=BOT_TOKEN)
@@ -348,6 +353,84 @@ def handle_cancel_delete(ack, body, client, logger):
     channel_id = body["channel"]["id"]
     ts = body["message"]["ts"]
     client.chat_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
+
+
+@app.command("/birthday_sync_with_canvas")
+def handle_slack_canvas(ack, body, respond):
+    ack()
+    user_id = body["user_id"]
+    if user_id not in ADMINS:
+        respond("This command is only available to administrators.")
+        return
+    
+    response = get_canvas_content("F093RE275PD")
+    parsed = parse_canvas_content(response)
+    
+    for uid, data in parsed.items():
+        user_id = uid.strip("<>@|")
+        text = data.get("birthday", "")
+        if text.split("/").__len__() != 2:
+            DD, MM, L = text.split("/")
+        else:
+            DD,MM = map(int, text.split("/"))
+        
+        userinfo = client.users_info(user=user_id)
+        
+        if userinfo and userinfo.get("ok") and userinfo.get("user"):
+            user_obj = userinfo.get("user")
+            user_tz = user_obj.get("tz") if user_obj else None
+        try:
+            db = connect_db()
+            cursor = db.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
+                VALUES (?,?,?,?)
+                """, (user_id, DD, MM, user_tz)
+            )
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"There is a problem contact someone: {e}")
+        print(str(DD)+"\n"+str(MM)+"\n"+user_id)
+
+def get_canvas_content(canvas_id):
+    file_response = app.client.files_info(file=canvas_id)
+    file_obj = file_response.get("file", {})
+    
+    download_url = file_obj.get("url_private_download")
+    if not download_url:
+        print("No download URL found")
+        return None
+    headers = {"Authorization": f"Bearer {BOT_TOKEN}"}
+    response = requests.get(download_url, headers=headers)
+    if response.status_code == 200:
+        return response.text
+    else:
+        print(f"Download failed: {response.status_code}")
+        return None
+
+def parse_canvas_content(content: str) -> dict[str, str]:
+    soup = BeautifulSoup(content, "html.parser")
+    birthdays = {}
+
+    for li in soup.find_all("li"):
+        a_tag = li.find("a")
+        if not a_tag:
+            continue
+
+        user_id = a_tag.get_text(strip=True).lstrip("@")
+
+        full_text = li.get_text(separator=" ", strip=True)
+
+        birthday_separated = full_text.split(":", 1)[-1].strip() if ":" in full_text else ""
+        
+        birthdays[user_id] = {
+            "birthday": birthday_separated,
+        }
+
+    return birthdays
+    
 
 def get_or_create_daily_thread(date_str):
     db = None
