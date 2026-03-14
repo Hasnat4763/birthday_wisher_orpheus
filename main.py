@@ -1,4 +1,3 @@
-import re
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
@@ -11,6 +10,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 import pytz
+import logging
+from logging.handlers import RotatingFileHandler
 from database import init, connect_db
 from calling_api import get_random_famous, format_birthday, clean
 load_dotenv()
@@ -36,6 +37,32 @@ client = WebClient(token=BOT_TOKEN)
 init()
 
 last_day_without_birthdays = None
+
+logger = logging.getLogger("BirthdayWisherOrpheus")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    fmt = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+    fh = RotatingFileHandler(
+        "birthday_wisher_orpheus.log", maxBytes=5*1024*1024, encoding='utf-8', backupCount=3
+    )
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+def log(e, level = "info", exc_info=False):
+    if level == "info":
+        logger.info(f"{e}", exc_info=exc_info)
+    elif level == "warning":
+        logger.warning(f"{e}", exc_info=exc_info)
+    elif level == "error":
+        logger.error(f"{e}", exc_info=exc_info)
+    elif level == "debug":
+        logger.debug(f"{e}", exc_info=exc_info)
+
+
+
 
 @app.command("/birthday_test")
 def handle_birthday_test(ack, body, respond):
@@ -97,14 +124,14 @@ From your Slack team! 🥳{famous_text}"""
                 text=dm_message
             )
             sent_dm_count += 1
-            print(f"✅ Test DM sent to {test_user_id}")
+            log(f"✅ Test DM sent to {test_user_id}", level="info")
             if thread_ts:
                 send_birthday_to_thread(test_user_id, famous_person, thread_ts)
                 sent_channel_count += 1
-                print(f"✅ Test channel post sent for {test_user_id}")
+                log(f"✅ Test channel post sent for {test_user_id}", level="info")
             
         except Exception as e: 
-            print(f"❌ Error sending test wish to {test_user_id}:  {e}")
+            log(f"❌ Error sending test wish to {test_user_id}:  {e}", level="error", exc_info=True)
     result_msg = f"*Test Complete!*\n\n"
     result_msg += f"Date tested: {test_day}/{test_month}\n"
     result_msg += f"DMs sent: {sent_dm_count}\n"
@@ -118,63 +145,16 @@ From your Slack team! 🥳{famous_text}"""
     
     respond(result_msg)
 
-@app.command("/bwo_register")
-def handle_bwo_register(ack, body, respond):
-    ack()
-    user_id = body["user_id"]
-    if user_id not in ADMINS:
-        respond("This command is only available to administrators.")
-        return
-    text = body["text"]
-    USER_ID, DayMonth = text.split()
-    print(USER_ID, DayMonth)
-    USER_ID, Gibberish = USER_ID.split("|")
-    USER_ID = USER_ID.strip("<>@|")
-    DD, MM = map(int, DayMonth.split("/"))
-    if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
-        respond("Invalid Date or Month Check Again.")
-        return
-    else:
-        if MM == 2 and DD > 29:
-            respond("Invalid Date February only has 29 days")
-            return
-        elif MM in [4, 6, 9, 11] and DD > 30:
-            respond("Invalid Date this month has 30 days only")
-            return
-    userinfo = client.users_info(user=USER_ID)
-    
-    if userinfo and userinfo.get("ok") and userinfo.get("user"):
-        user_obj = userinfo.get("user")
-        user_tz = user_obj.get("tz") if user_obj else None
-        
-    else:
-        respond("Could not fetch user info. Please try again later.")
-        return
-        
-    
-    
-    try:
-        db = connect_db()
-        cursor = db.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
-            VALUES (?,?,?,?)
-            """, (USER_ID, DD, MM, user_tz)
-        )
-        db.commit()
-        db.close()
-        respond(Gibberish + " Birthday has been Registered Successfully!")
-    except Exception:
-        respond("There is a problem contact someone")
-    print(str(DD)+"\n"+str(MM)+"\n"+USER_ID)
-    
 
 @app.command("/birthday_register")
 def handle_birthday_register(ack, body, respond):
     ack()
+    print(body)
     user_id = body["user_id"]
     text = body["text"]
+    if text == "":
+        respond("Please provide your birthday in the format: `DD/MM` (e.g., `25/12` for December 25th)")
+        return
     DD,MM = map(int, text.split("/"))
     if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
         respond("Invalid Date or Month Check Again.")
@@ -192,30 +172,22 @@ def handle_birthday_register(ack, body, respond):
     if userinfo and userinfo.get("ok") and userinfo.get("user"):
         user_obj = userinfo.get("user")
         user_tz = user_obj.get("tz") if user_obj else None
-        print(user_tz)
+        log(f"User timezone for {user_id}: {user_tz}", level="info")
         
     else:
         respond("Could not fetch user info. Please try again later.")
         return
         
+    data = str(DD)+"/"+str(MM)
     
     
     try:
-        db = connect_db()
-        cursor = db.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
-            VALUES (?,?,?,?)
-            """, (user_id, DD, MM, user_tz)
-        )
-        db.commit()
-        db.close()
+        add_users_to_db(user_id, {"birthday": data})
         respond("Your Birthday has been Registered Successfully!")
     except Exception as e:
         respond(f"There is a problem contact someone: {e}")
-    print(str(DD)+"\n"+str(MM)+"\n"+user_id)
-    
+        log(f"Error occurred while registering birthday for {user_id}: {e}", level="error", exc_info=True)
+    log(f"Registered birthday for {user_id}: {DD}/{MM}", level="info")
 
 @app.command("/birthday_check")
 def handle_birthday_check(ack, body, respond):
@@ -231,13 +203,14 @@ def handle_birthday_check(ack, body, respond):
             )
         result = cursor.fetchone()
         db.close()
-        print(result)
+        log(f"Birthday check for {user_id}: {result}", level="info")
         if result:
             dd, mm, tz = result
             respond(f"You set your birthday as: {dd}/{mm} (Timezone: {tz})")
         else:
             respond("Your data doesn't exist yet.")
-    except Exception:
+    except Exception as e:
+        log(f"Error occurred while checking birthday for {user_id}: {e}", level="error", exc_info=True)
         respond("There is a problem contact someone")
         return
 
@@ -275,6 +248,7 @@ def handle_birthday_list(ack, body, respond):
         respond("\n".join(lines))
 
     except Exception as e:
+        log(f"{e}", level="error", exc_info=True)
         respond("There was a problem fetching the birthday list: " + str(e))
 
 
@@ -345,7 +319,8 @@ def handle_confirm_delete(ack, body, client, logger):
         db.close()
     except Exception as e:
         client.chat_postMessage(channel=channel_id, text="There was a problem deleting your data." + str(e))
-    
+        log(f"Error occurred while deleting birthday data for {user_id}: {e}", level="error", exc_info=True)
+
 @app.action("cancel_delete")
 def handle_cancel_delete(ack, body, client, logger):
     ack()
@@ -363,36 +338,70 @@ def handle_slack_canvas(ack, body, respond):
         respond("This command is only available to administrators.")
         return
     
-    response = get_canvas_content("F093RE275PD")
-    parsed = parse_canvas_content(response)
+    response = get_canvas_content(CANVAS_ID)
+    if response:
+        parsed = parse_canvas_content(response)
+        for uid, data in parsed.items():
+            add_users_to_db(uid, data)
+    respond("Sync complete!")
+
+
+@app.command("/birthday_add_channel")
+def handle_birthday_add_channel(ack, body, respond):
+    ack()
+    user_id = body["user_id"]
+    channel_id = body["channel_id"]
     
-    for uid, data in parsed.items():
-        user_id = uid.strip("<>@|")
-        text = data.get("birthday", "")
-        if text.split("/").__len__() != 2:
-            DD, MM, L = text.split("/")
-        else:
-            DD,MM = map(int, text.split("/"))
-        
+
+
+
+@app.error
+def global_error_handler(error, body, logger):
+    logger.exception("Unhandled Slack error: %s | body=%s", error, body)
+
+def add_users_to_db(uid, data):
+    user_id = uid.strip("<>@|")
+    text = data.get("birthday", "")
+    user_tz = None  
+    userinfo = None
+    if len(text.split("/")) == 3:
+        DD, MM, L = text.split("/")
+        DD, MM = map(int, (DD, MM))
+    elif len(text.split("/")) == 2:
+        DD,MM = map(int, text.split("/"))
+    else:
+        log(f"Invalid birthday format for {user_id}: {text}", level="error")
+        return
+    try:
         userinfo = client.users_info(user=user_id)
-        
-        if userinfo and userinfo.get("ok") and userinfo.get("user"):
-            user_obj = userinfo.get("user")
-            user_tz = user_obj.get("tz") if user_obj else None
-        try:
-            db = connect_db()
-            cursor = db.cursor()
-            cursor.execute(
+    except Exception as e:
+        log(f"Error fetching user info for {user_id}: {e}", level="error")
+        return
+      
+    if userinfo and userinfo.get("ok") and userinfo.get("user"):
+        user_obj = userinfo.get("user")
+        user_tz = user_obj.get("tz") if user_obj else None
+    else:
+        log(f"Could not fetch user info for {user_id}. Skipping.", level="error")
+    
+    if not user_tz:
+        user_tz = "UTC"
+        log(f"No timezone found for {user_id}, defaulting to UTC", level="warning")
+    try:
+        db = connect_db()
+        cursor = db.cursor()
+        cursor.execute(
                 """
                 INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
                 VALUES (?,?,?,?)
                 """, (user_id, DD, MM, user_tz)
             )
-            db.commit()
-            db.close()
-        except Exception as e:
-            print(f"There is a problem contact someone: {e}")
-        print(str(DD)+"\n"+str(MM)+"\n"+user_id)
+        db.commit()
+        db.close()
+    except Exception as e:
+        log(f"{e}", level="error", exc_info=True)
+    log(f"Registered birthday for {user_id}: {DD}/{MM}", level="info")
+
 
 def get_canvas_content(canvas_id):
     file_response = app.client.files_info(file=canvas_id)
@@ -400,14 +409,14 @@ def get_canvas_content(canvas_id):
     
     download_url = file_obj.get("url_private_download")
     if not download_url:
-        print("No download URL found")
+        log("No download URL found", level="error")
         return None
     headers = {"Authorization": f"Bearer {BOT_TOKEN}"}
     response = requests.get(download_url, headers=headers)
     if response.status_code == 200:
         return response.text
     else:
-        print(f"Download failed: {response.status_code}")
+        log(f"Download failed: {response.status_code}", level="error")
         return None
 
 def parse_canvas_content(content: str) -> dict[str, str]:
@@ -447,7 +456,7 @@ def get_or_create_daily_thread(date_str):
         
         if result:
             thread_ts = result[0]
-            print(f"✅ Using existing thread for {date_str}")
+            log(f"✅ Using existing thread for {date_str}", level="info")
         else:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
             formatted_date = date_obj.strftime('%B %d, %Y')  # e.g., "December 29, 2025"
@@ -483,13 +492,13 @@ def get_or_create_daily_thread(date_str):
                 (date_str, BIRTHDAY_CHANNEL, thread_ts)
             )
             db.commit()
-            print(f"✅ Created new thread for {date_str}")
+            log(f"✅ Created new thread for {date_str}", level="info")
         
         db.close()
         return thread_ts
         
     except Exception as e:
-        print(f"Error managing thread:  {e}")
+        log(f"{e}", level="error", exc_info=True)
         if db:
             db.close()
         return None
@@ -509,7 +518,7 @@ def log_wished(user_id, year, month, day, status=True):
         db.close()
         return True
     except Exception as e:
-        print(f"Error logging wished status: {e}")
+        log(f"{e}", level="error", exc_info=True)
         if db:
             db.close()
         return False
@@ -529,7 +538,7 @@ def check_if_wished(user_id, year, month, day):
         db.close()
         return bool(result and result[0])
     except Exception as e:
-        print(f"Error checking wished status: {e}")
+        log(f"{e}", level="error", exc_info=True)
         return False
 
 def send_birthday_to_thread(user_id, famous_person, thread_ts):
@@ -565,10 +574,10 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!{fa
             thread_ts=thread_ts,
             text=message
         )
-        print(f"✅ Posted birthday wish for {user_id} in thread")
+        log(f"✅ Posted birthday wish for {user_id} in thread", level="info")
         
     except Exception as e:
-        print(f"Error posting to thread: {e}")
+        log(f"{e}", level="error", exc_info=True)
 
 
 def find_and_send_wishes():
@@ -578,7 +587,7 @@ def find_and_send_wishes():
     yesterday = today - timedelta(days=1)
     tomorrow = today + timedelta(days=1)
     
-    print(f"\n🔍 Birthday check at {now. strftime('%Y-%m-%d %H:%M')} UTC")
+    log(f"\n🔍 Birthday check at {now. strftime('%Y-%m-%d %H:%M')} UTC", level="info")
     
     db = connect_db()
     cursor = db.cursor()
@@ -597,7 +606,7 @@ def find_and_send_wishes():
     results = cursor.fetchall()
     db.close()
     
-    print(f"Checking {len(results)} user(s)")
+    log(f"Checking {len(results)} user(s)", level="info")
     thread_ts = None
 
     if BIRTHDAY_CHANNEL and results: 
@@ -611,7 +620,7 @@ def find_and_send_wishes():
                     user_timezone = pytz. timezone(tz)
                     user_now = datetime.now(user_timezone)
                 except pytz.UnknownTimeZoneError:
-                    print(f"⚠️ Unknown timezone '{tz}' for {user_id}")
+                    log(f"⚠️ Unknown timezone '{tz}' for {user_id}", level="error")
                     user_now = datetime.now(pytz.utc)
             else:
                 user_now = datetime. now(pytz.utc)
@@ -629,7 +638,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
                             channel=user_id,
                             text=dm_message
                         )
-                        print(f"✅ Sent DM to {user_id}")
+                        log(f"✅ Sent DM to {user_id}", level="info")
                         
                         if thread_ts:  
                             send_birthday_to_thread(user_id, famous_person, thread_ts)
@@ -637,19 +646,19 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
                         wish_success = True
                         
                     except Exception as send_error: 
-                        print(f"❌ Error sending wish to {user_id}: {send_error}")
+                        log(f"Error sending wish to {user_id}: {send_error}", level="error", exc_info=True)
                         wish_success = False
                     
                     finally: 
                         log_result = log_wished(user_id, user_now. year, month, day, status=wish_success)
                         if not log_result:
-                            print(f"⚠️ Warning: Failed to log wish for {user_id}")
+                            log(f"⚠️ Warning: Failed to log wish for {user_id}", level='warning')
                 else:
-                    print(f"⏭️ Already wished {user_id} on {day}/{month}/{user_now.year}, skipping")
-        
+                    log(f"⏭️ Already wished {user_id} on {day}/{month}/{user_now.year}, skipping", level="info")
+
         except Exception as e:
-            print(f"❌ Error processing {user_id}: {e}")
-    
+            log(f"❌ Error processing {user_id}: {e}", level="error", exc_info=True)
+
     if last_day_without_birthdays != today:
         last_day_without_birthdays = today
         db = connect_db()
@@ -666,9 +675,9 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
             run_birthday_not_celebrated_streak(celebrated_today=True)
     
 def daily_cleanup():
-    print(f"\nRunning daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    log(f"\nRunning daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}", level="info")
     deleted = clean(days=90)
-    print(f"Cleaned {deleted} old entries")
+    log(f"Cleaned {deleted} old entries", level="info")
 
 
 
@@ -685,21 +694,53 @@ def run_birthday_not_celebrated_streak(celebrated_today):
     if BIRTHDAY_CHANNEL:
         if celebrated_today:
             current_streak = 0
-            streak_message = f"BIRTHDAYS CELEBRATED TODAY! Streak has been reset to 0. (For Now)"
+            streak_message = f"""[
+                {{
+                    "type": "section",
+                    "text": {{
+                        "type": "mrkdwn",
+                        "text": "*STREAK DEACTIVATED*!"
+                    }}
+                }},
+                {{
+                    "type": "divider"
+                }},
+                {{
+                    "type": "context",
+                    "elements": [
+                        {{
+                            "type": "image",
+                            "image_url": "https://api.slack.com/img/blocks/bkb_template_images/notificationsWarningIcon.png",
+                            "alt_text": "notifications warning icon"
+                        }},
+                        {
+                            "type": "mrkdwn",
+                            "text": "Today is *{datetime.now().strftime('%d %B, %Y')}*"
+                        }
+                    ]
+                }},
+                {{
+                    "type": "section",
+                    "text": {{
+                        "type": "mrkdwn",
+                        "text": "The Streak has been reset to 0 because a birthday has been/will be celebrated today"
+                    }}
+                }}
+            ]
+            """
+            
         else:
             current_streak = result[0] if result else 0
             if current_streak == 0:
                 current_streak = 1
-                streak_message = f"""Streak Activated!
-Today is {datetime.now().strftime('%d %B, %Y')} and
-No birthdays were celebrated today and thus brought up the streak from {current_streak - 1} to {current_streak}."""
+                streak_message = birthday_celebration_streak_message_builder(datetime.now().strftime('%d %B, %Y'), current_streak)
             else:
                 current_streak += 1
-                streak_message = f"""Streak Continues!
-Today is {datetime.now().strftime('%d %B, %Y')} and
-No birthdays were celebrated today and thus brought up the streak from {current_streak - 1} to {current_streak}."""
+                streak_message = birthday_celebration_streak_message_builder(datetime.now().strftime('%d %B, %Y'), current_streak)
+    
+        app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
+    
             
-        app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, text=streak_message)
     cursor.execute(
         '''
         INSERT OR REPLACE INTO birthday_not_celebrated_streak (id, streak)
@@ -709,6 +750,43 @@ No birthdays were celebrated today and thus brought up the streak from {current_
     db.commit()
     db.close()
 
+
+def birthday_celebration_streak_message_builder(date, streak):
+    return f"""
+	[
+		{{
+			"type": "section",
+			"text": {{
+				"type": "mrkdwn",
+				"text": "*STREAK ACTIVATED*!"
+			}}
+		}},
+		{{
+			"type": "divider"
+		}},
+		{{
+			"type": "context",
+			"elements": [
+				{{
+					"type": "image",
+					"image_url": "https://api.slack.com/img/blocks/bkb_template_images/notificationsWarningIcon.png",
+					"alt_text": "notifications warning icon"
+				}},
+				{
+					"type": "mrkdwn",
+					"text": "Today is *{date}*"
+				}
+			]
+		}},
+		{{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Because no birthdays were celebrated today so the streak has been brought up to {streak}"
+			}
+		}}
+	]
+"""
 
 def monthly_birthdays():
     date = datetime.now().date()
@@ -734,20 +812,35 @@ def monthly_birthdays():
     birthday_list_message = f"🎉 Birthdays this month: {birthdays_in_month} 🎂 \n They have birthdays on this month:\n"
     for uid, day, month in results:
         birthday_list_message += f"• <@{uid}> - {day}/{month}\n"
-    app.client.chat_postMessage(
-        channel=BIRTHDAY_CHANNEL,
-        text=birthday_list_message
-    )
+    if BIRTHDAY_CHANNEL:
+        app.client.chat_postMessage(
+            channel=BIRTHDAY_CHANNEL,
+            text=birthday_list_message
+        )
+
+def is_user_channel_admin(user_id,channel_id):
+    try:
+        resp = app.client.conversations_info(channel=channel_id)
+        if resp and resp.get("ok"):
+            creator = resp["channel"]["creator"]
+        if user_id == creator:
+            return True
+        return False    
+    except Exception as e:
+        log(f"Error checking channel admin status: {e}", level="error", exc_info=True)
+        return False
+
 
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
 schedule.every().day.at("00:00").do(monthly_birthdays)
 
+
 def run_scheduler():
-    print("\nScheduler started!")
-    print("  Birthday checks:  Every hour")
-    print("  Cache cleanup: Daily at 03:00 UTC")
-    print("  Thread cleanup: Daily at 03:00 UTC\n")
+    log("\nScheduler started!")
+    log("  Birthday checks:  Every hour")
+    log("  Cache cleanup: Daily at 03:00 UTC")
+    log("  Thread cleanup: Daily at 03:00 UTC")
     while True:
         schedule.run_pending()
         time.sleep(60)
