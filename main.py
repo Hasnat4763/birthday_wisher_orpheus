@@ -218,6 +218,7 @@ def handle_birthday_check(ack, body, respond):
 def handle_birthday_list(ack, body, respond):
     ack()
     user_id = body["user_id"]
+    users = 0
 
     if user_id not in ADMINS:
         respond("This command is only available to administrators.")
@@ -243,8 +244,11 @@ def handle_birthday_list(ack, body, respond):
         lines = ["*Registered birthdays (sorted):*"]
         for uid, day, month, tz in rows:
             tz_display = tz if tz else "Unknown"
+            users += 1
             lines.append(f"• <@{uid}> — {day:02d}/{month:02d} — `{tz_display}`")
 
+        lines.append(f"\nTotal users with birthdays: {users}")
+        
         respond("\n".join(lines))
 
     except Exception as e:
@@ -334,6 +338,8 @@ def handle_cancel_delete(ack, body, client, logger):
 def handle_slack_canvas(ack, body, respond):
     ack()
     user_id = body["user_id"]
+    synced_users = []
+    success = 0
     if user_id not in ADMINS:
         respond("This command is only available to administrators.")
         return
@@ -343,17 +349,9 @@ def handle_slack_canvas(ack, body, respond):
         parsed = parse_canvas_content(response)
         for uid, data in parsed.items():
             add_users_to_db(uid, data)
-    respond("Sync complete!")
-
-
-@app.command("/birthday_add_channel")
-def handle_birthday_add_channel(ack, body, respond):
-    ack()
-    user_id = body["user_id"]
-    channel_id = body["channel_id"]
-    
-
-
+            synced_users.append(uid)
+        success = len(synced_users)
+    respond(f"Sync complete! Successfully synced {success} users. Synced users: {', '.join(synced_users)}")
 
 @app.error
 def global_error_handler(error, body, logger):
@@ -364,6 +362,7 @@ def add_users_to_db(uid, data):
     text = data.get("birthday", "")
     user_tz = None  
     userinfo = None
+    
     if len(text.split("/")) == 3:
         DD, MM, L = text.split("/")
         DD, MM = map(int, (DD, MM))
@@ -400,6 +399,7 @@ def add_users_to_db(uid, data):
         db.close()
     except Exception as e:
         log(f"{e}", level="error", exc_info=True)
+    
     log(f"Registered birthday for {user_id}: {DD}/{MM}", level="info")
 
 
@@ -791,6 +791,7 @@ def birthday_celebration_streak_message_builder(date, streak):
 def monthly_birthdays():
     date = datetime.now().date()
     month = None
+    users = 0
     if date.day == 1 or date.day == 15:
         month = datetime.now().month
     else:
@@ -812,24 +813,15 @@ def monthly_birthdays():
     birthday_list_message = f"🎉 Birthdays this month: {birthdays_in_month} 🎂 \n They have birthdays on this month:\n"
     for uid, day, month in results:
         birthday_list_message += f"• <@{uid}> - {day}/{month}\n"
+        users+=1
+    
+    birthday_list_message += f"\nTotal users with birthdays this month: {users}"
+
     if BIRTHDAY_CHANNEL:
         app.client.chat_postMessage(
             channel=BIRTHDAY_CHANNEL,
             text=birthday_list_message
         )
-
-def is_user_channel_admin(user_id,channel_id):
-    try:
-        resp = app.client.conversations_info(channel=channel_id)
-        if resp and resp.get("ok"):
-            creator = resp["channel"]["creator"]
-        if user_id == creator:
-            return True
-        return False    
-    except Exception as e:
-        log(f"Error checking channel admin status: {e}", level="error", exc_info=True)
-        return False
-
 
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
