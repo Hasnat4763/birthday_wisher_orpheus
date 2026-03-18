@@ -29,7 +29,6 @@ assert BIRTHDAY_CHANNEL, "BIRTHDAY_CHANNEL_ID has not been set"
 assert ADMIN, "ADMIN_USER_ID has not been set"
 assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
 
-
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
