@@ -76,7 +76,7 @@ def handle_birthday_test(ack, body, respond):
     text = body.get("text", "").strip()
     if text: 
         try:
-            DD, MM = map(int, text. split("/"))
+            DD, MM = map(int, text.split("/"))
             test_day, test_month = DD, MM
         except:
             respond("Invalid format!  Use: `/birthday_test DD/MM` or leave empty for today")
@@ -119,7 +119,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
 
 From your Slack team! 🥳{famous_text}"""
             
-            app.client. chat_postMessage(
+            app.client.chat_postMessage(
                 channel=test_user_id,
                 text=dm_message
             )
@@ -155,32 +155,22 @@ def handle_birthday_register(ack, body, respond):
     if text == "":
         respond("Please provide your birthday in the format: `DD/MM` (e.g., `25/12` for December 25th)")
         return
-    DD,MM = map(int, text.split("/"))
-    if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
-        respond("Invalid Date or Month Check Again.")
-        return
-    else:
-        if MM == 2 and DD > 29:
-            respond("Invalid Date February only has 29 days")
+    try:
+        DD,MM = map(int, text.split("/"))
+        if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
+            respond("Invalid Date or Month Check Again.")
             return
-        elif MM in [4, 6, 9, 11] and DD > 30:
-            respond("Invalid Date this month has 30 days only")
-            return
-    
-    userinfo = client.users_info(user=user_id)
-    
-    if userinfo and userinfo.get("ok") and userinfo.get("user"):
-        user_obj = userinfo.get("user")
-        user_tz = user_obj.get("tz") if user_obj else None
-        log(f"User timezone for {user_id}: {user_tz}", level="info")
-        
-    else:
-        respond("Could not fetch user info. Please try again later.")
-        return
-        
+        else:
+            if MM == 2 and DD > 29:
+                respond("Invalid Date February only has 29 days")
+                return
+            elif MM in [4, 6, 9, 11] and DD > 30:
+                respond("Invalid Date this month has 30 days only")
+                return
+    except:
+        respond("Invalid format!  Use: `/birthday_register DD/MM`")
+        return            
     data = str(DD)+"/"+str(MM)
-    
-    
     try:
         add_users_to_db(user_id, {"birthday": data})
         respond("Your Birthday has been Registered Successfully!")
@@ -562,7 +552,7 @@ def send_birthday_to_thread(user_id, famous_person, thread_ts):
                 desc_short = sentences[0]
                 if len(desc_short) > 200:
                     desc_short = desc_short[:197] + "..."
-                elif not desc_short. endswith('.'):
+                elif not desc_short.endswith('.'):
                     desc_short += "."
                 famous_text += f"\n_{desc_short}_"
         message = f"""🎂 Happy Birthday <@{user_id}>!  🎉
@@ -587,7 +577,7 @@ def find_and_send_wishes():
     yesterday = today - timedelta(days=1)
     tomorrow = today + timedelta(days=1)
     
-    log(f"\n🔍 Birthday check at {now. strftime('%Y-%m-%d %H:%M')} UTC", level="info")
+    log(f"\n🔍 Birthday check at {now.strftime('%Y-%m-%d %H:%M')} UTC", level="info")
     
     db = connect_db()
     cursor = db.cursor()
@@ -599,9 +589,9 @@ def find_and_send_wishes():
         (day = ? AND month = ?) OR
         (day = ? AND month = ?)
         ''', 
-        (yesterday.day, yesterday. month,
+        (yesterday.day, yesterday.month,
          today.day, today.month,
-         tomorrow. day, tomorrow. month)
+         tomorrow.day, tomorrow.month)
     )
     results = cursor.fetchall()
     db.close()
@@ -623,9 +613,9 @@ def find_and_send_wishes():
                     log(f"⚠️ Unknown timezone '{tz}' for {user_id}", level="error")
                     user_now = datetime.now(pytz.utc)
             else:
-                user_now = datetime. now(pytz.utc)
+                user_now = datetime.now(pytz.utc)
             if user_now.day == day and user_now.month == month:
-                if not check_if_wished(user_id, user_now. year, month, day):
+                if not check_if_wished(user_id, user_now.year, month, day):
                     wish_success = False
                     try:
                         famous_person = get_random_famous(month, day)
@@ -650,7 +640,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
                         wish_success = False
                     
                     finally: 
-                        log_result = log_wished(user_id, user_now. year, month, day, status=wish_success)
+                        log_result = log_wished(user_id, user_now.year, month, day, status=wish_success)
                         if not log_result:
                             log(f"⚠️ Warning: Failed to log wish for {user_id}", level='warning')
                 else:
@@ -694,40 +684,39 @@ def run_birthday_not_celebrated_streak(celebrated_today):
     if BIRTHDAY_CHANNEL:
         if celebrated_today:
             current_streak = 0
-            streak_message = f"""[
-                {{
+            streak_message = [
+                {
                     "type": "section",
-                    "text": {{
+                    "text": {
                         "type": "mrkdwn",
                         "text": "*STREAK DEACTIVATED*!"
-                    }}
-                }},
-                {{
+                    }
+                },
+                {
                     "type": "divider"
-                }},
-                {{
+                },
+                {
                     "type": "context",
                     "elements": [
-                        {{
+                        {
                             "type": "image",
                             "image_url": "https://api.slack.com/img/blocks/bkb_template_images/notificationsWarningIcon.png",
                             "alt_text": "notifications warning icon"
-                        }},
+                        },
                         {
                             "type": "mrkdwn",
-                            "text": "Today is *{datetime.now().strftime('%d %B, %Y')}*"
+                            "text": f"Today is *{datetime.now().strftime('%d %B, %Y')}*"
                         }
                     ]
-                }},
-                {{
+                },
+                {
                     "type": "section",
-                    "text": {{
+                    "text": {
                         "type": "mrkdwn",
                         "text": "The Streak has been reset to 0 because a birthday has been/will be celebrated today"
-                    }}
-                }}
+                    }
+                }
             ]
-            """
             
         else:
             current_streak = result[0] if result else 0
@@ -752,41 +741,39 @@ def run_birthday_not_celebrated_streak(celebrated_today):
 
 
 def birthday_celebration_streak_message_builder(date, streak):
-    return f"""
-	[
-		{{
-			"type": "section",
-			"text": {{
-				"type": "mrkdwn",
-				"text": "*STREAK ACTIVATED*!"
-			}}
-		}},
-		{{
-			"type": "divider"
-		}},
-		{{
-			"type": "context",
-			"elements": [
-				{{
-					"type": "image",
-					"image_url": "https://api.slack.com/img/blocks/bkb_template_images/notificationsWarningIcon.png",
-					"alt_text": "notifications warning icon"
-				}},
-				{
-					"type": "mrkdwn",
-					"text": "Today is *{date}*"
-				}
-			]
-		}},
-		{{
+    return [
+		{
 			"type": "section",
 			"text": {
 				"type": "mrkdwn",
-				"text": "Because no birthdays were celebrated today so the streak has been brought up to {streak}"
+				"text": "*STREAK ACTIVATED*!"
 			}
-		}}
+		},
+		{
+			"type": "divider"
+		},
+		{
+			"type": "context",
+			"elements": [
+				{
+					"type": "image",
+					"image_url": "https://api.slack.com/img/blocks/bkb_template_images/notificationsWarningIcon.png",
+					"alt_text": "notifications warning icon"
+				},
+				{
+					"type": "mrkdwn",
+					"text": f"Today is *{date}*"
+				}
+			]
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": f"Because no birthdays were celebrated today so the streak has been brought up to {streak}"
+			}
+		}
 	]
-"""
 
 def monthly_birthdays():
     date = datetime.now().date()
