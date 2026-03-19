@@ -155,7 +155,7 @@ def handle_birthday_register(ack, body, respond):
         respond("Please provide your birthday in the format: `DD/MM` (e.g., `25/12` for December 25th)")
         return
     try:
-        DD,MM = map(int, text.split("/"))
+        MM, DD = map(int, text.split("/"))
         if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
             respond("Invalid Date or Month Check Again.")
             return
@@ -169,7 +169,7 @@ def handle_birthday_register(ack, body, respond):
     except:
         respond("Invalid format!  Use: `/birthday_register DD/MM`")
         return            
-    data = str(DD)+"/"+str(MM)
+    data = str(MM)+"/"+str(DD)
     try:
         add_users_to_db(user_id, {"birthday": data})
         respond("Your Birthday has been Registered Successfully!")
@@ -353,10 +353,10 @@ def add_users_to_db(uid, data):
     userinfo = None
     
     if len(text.split("/")) == 3:
-        DD, MM, L = text.split("/")
-        DD, MM = map(int, (DD, MM))
+        MM,DD, L = text.split("/")
+        MM, DD = map(int, (DD, MM))
     elif len(text.split("/")) == 2:
-        DD,MM = map(int, text.split("/"))
+        MM,DD = map(int, text.split("/"))
     else:
         log(f"Invalid birthday format for {user_id}: {text}", level="error")
         return
