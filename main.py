@@ -399,7 +399,7 @@ def add_users_to_db(uid, data):
     except Exception as e:
         log(f"{e}", level="error", exc_info=True)
     
-    log(f"Registered birthday for {user_id}: {DD}/{MM}", level="info")
+    log(f"Registered birthday for {user_id}: {MM}/{DD}", level="info")
 
 
 def get_canvas_content(canvas_id):
