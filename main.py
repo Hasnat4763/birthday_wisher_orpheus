@@ -353,8 +353,8 @@ def add_users_to_db(uid, data):
     userinfo = None
     
     if len(text.split("/")) == 3:
-        MM,DD, L = text.split("/")
-        MM, DD = map(int, (DD, MM))
+        MM, DD, L = text.split("/")
+        MM, DD = map(int, (MM, DD))
     elif len(text.split("/")) == 2:
         MM,DD = map(int, text.split("/"))
     else:
