@@ -360,6 +360,16 @@ def add_users_to_db(uid, data):
     else:
         log(f"Invalid birthday format for {user_id}: {text}", level="error")
         return
+    if (DD > 31 or DD < 1) or (MM > 12 or MM < 1):
+        log(f"Invalid date for {user_id}: {text}", level="error")
+        return
+    else:
+        if MM == 2 and DD > 29:
+            log(f"Invalid date for {user_id}: {text}", level="error")
+            return
+        elif MM in [4, 6, 9, 11] and DD > 30:
+            log(f"Invalid date for {user_id}: {text}", level="error")
+            return
     try:
         userinfo = client.users_info(user=user_id)
     except Exception as e:
