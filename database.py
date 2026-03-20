@@ -74,6 +74,15 @@ def init():
         )
         '''
     )
+    cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS birthday_not_celebrated_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+    )
     
     db.commit()
     db.close()

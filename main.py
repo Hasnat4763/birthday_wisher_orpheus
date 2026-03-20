@@ -32,10 +32,7 @@ assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
 
-
 init()
-
-last_day_without_birthdays = None
 
 logger = logging.getLogger("BirthdayWisherOrpheus")
 logger.setLevel(logging.INFO)
@@ -75,7 +72,7 @@ def handle_birthday_test(ack, body, respond):
     text = body.get("text", "").strip()
     if text: 
         try:
-            DD, MM = map(int, text.split("/"))
+            MM, DD = map(int, text.split("/"))
             test_day, test_month = DD, MM
         except:
             respond("Invalid format!  Use: `/birthday_test DD/MM` or leave empty for today")
@@ -108,7 +105,7 @@ def handle_birthday_test(ack, body, respond):
     sent_dm_count = 0
     sent_channel_count = 0
     
-    for test_user_id, tz in results:
+    for test_user_id in results:
         try:
             famous_person = get_random_famous(test_month, test_day)
             famous_text = format_birthday(famous_person)
@@ -117,12 +114,16 @@ def handle_birthday_test(ack, body, respond):
 Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
 
 From your Slack team! 🥳{famous_text}"""
+            try:
+                app.client.chat_postMessage(
+                    channel=test_user_id,
+                    text=dm_message
+                )
+                sent_dm_count += 1
+            except Exception as e:
+                log(f"Error sending test DM to {test_user_id}: {e}", level="error", exc_info=True)
+                continue
             
-            app.client.chat_postMessage(
-                channel=test_user_id,
-                text=dm_message
-            )
-            sent_dm_count += 1
             log(f"✅ Test DM sent to {test_user_id}", level="info")
             if thread_ts:
                 send_birthday_to_thread(test_user_id, famous_person, thread_ts)
@@ -152,7 +153,7 @@ def handle_birthday_register(ack, body, respond):
     user_id = body["user_id"]
     text = body["text"]
     if text == "":
-        respond("Please provide your birthday in the format: `DD/MM` (e.g., `25/12` for December 25th)")
+        respond("Please provide your birthday in the format: `MM/DD` (e.g., `12/25` for December 25th)")
         return
     try:
         MM, DD = map(int, text.split("/"))
@@ -167,7 +168,7 @@ def handle_birthday_register(ack, body, respond):
                 respond("Invalid Date this month has 30 days only")
                 return
     except:
-        respond("Invalid format!  Use: `/birthday_register DD/MM`")
+        respond("Invalid format!  Use: `/birthday_register MM/DD`")
         return            
     data = str(MM)+"/"+str(DD)
     try:
@@ -176,7 +177,7 @@ def handle_birthday_register(ack, body, respond):
     except Exception as e:
         respond(f"There is a problem contact someone: {e}")
         log(f"Error occurred while registering birthday for {user_id}: {e}", level="error", exc_info=True)
-    log(f"Registered birthday for {user_id}: {DD}/{MM}", level="info")
+    log(f"Registered birthday for {user_id}: {MM}/{DD}", level="info")
 
 @app.command("/birthday_check")
 def handle_birthday_check(ack, body, respond):
@@ -194,8 +195,8 @@ def handle_birthday_check(ack, body, respond):
         db.close()
         log(f"Birthday check for {user_id}: {result}", level="info")
         if result:
-            dd, mm, tz = result
-            respond(f"You set your birthday as: {dd}/{mm} (Timezone: {tz})")
+            mm, dd, tz = result
+            respond(f"You set your birthday as: {mm}/{dd} (Timezone: {tz})")
         else:
             respond("Your data doesn't exist yet.")
     except Exception as e:
@@ -234,7 +235,7 @@ def handle_birthday_list(ack, body, respond):
         for uid, day, month, tz in rows:
             tz_display = tz if tz else "Unknown"
             users += 1
-            lines.append(f"• <@{uid}> — {day:02d}/{month:02d} — `{tz_display}`")
+            lines.append(f"• <@{uid}> — {month:02d}/{day:02d} — `{tz_display}`")
 
         lines.append(f"\nTotal users with birthdays: {users}")
         
@@ -249,7 +250,8 @@ def handle_birthday_list(ack, body, respond):
 def handle_birthday_delete(ack, body):
     ack()
     user_id = body["user_id"]
-    app.client.chat_postMessage(
+    try:
+        app.client.chat_postMessage(
         channel=user_id,
         text="Are you sure you want to delete your birthday data?",
         blocks=[
@@ -290,7 +292,9 @@ def handle_birthday_delete(ack, body):
             }
         ]
     )
-    
+    except Exception as e:
+        log(f"{e}", level="error", exc_info=True)
+        return
     
 @app.action("confirm_delete")
 def handle_confirm_delete(ack, body, client, logger):
@@ -403,8 +407,12 @@ def add_users_to_db(uid, data):
 
 
 def get_canvas_content(canvas_id):
-    file_response = app.client.files_info(file=canvas_id)
-    file_obj = file_response.get("file", {})
+    try:
+        file_response = app.client.files_info(file=canvas_id)
+        file_obj = file_response.get("file", {})
+    except Exception as e:
+        log(f"Error fetching canvas file info: {e}", level="error", exc_info=True)
+        return None
     
     download_url = file_obj.get("url_private_download")
     if not download_url:
@@ -459,8 +467,8 @@ def get_or_create_daily_thread(date_str):
         else:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
             formatted_date = date_obj.strftime('%B %d, %Y')  # e.g., "December 29, 2025"
-            
-            response = app.client.chat_postMessage(
+            try:
+                response = app.client.chat_postMessage(
                 channel=BIRTHDAY_CHANNEL,
                 text=f"🎉🎂 *Birthdays Today - {formatted_date}* 🎈🎁",
                 blocks=[
@@ -481,7 +489,9 @@ def get_or_create_daily_thread(date_str):
                     }
                 ]
             )
-            
+            except Exception as e:
+                log(f"Error creating thread in channel {BIRTHDAY_CHANNEL}: {e}", level="error", exc_info=True)
+                return None
             thread_ts = response['ts']
             cursor.execute(
                 """
@@ -567,20 +577,20 @@ def send_birthday_to_thread(user_id, famous_person, thread_ts):
         message = f"""🎂 Happy Birthday <@{user_id}>!  🎉
 
 Wishing you an amazing day filled with joy, laughter, and wonderful memories!{famous_text}"""
-        
-        app.client.chat_postMessage(
+        try:
+            app.client.chat_postMessage(
             channel=BIRTHDAY_CHANNEL,
             thread_ts=thread_ts,
             text=message
         )
-        log(f"✅ Posted birthday wish for {user_id} in thread", level="info")
-        
+            log(f"✅ Posted birthday wish for {user_id} in thread", level="info")
+        except Exception as e:
+            log(f"Error posting birthday wish for {user_id} in thread: {e}", level="error", exc_info=True)
     except Exception as e:
         log(f"{e}", level="error", exc_info=True)
 
 
 def find_and_send_wishes():
-    global last_day_without_birthdays
     now = datetime.now(pytz.utc)
     today = now.date()
     yesterday = today - timedelta(days=1)
@@ -603,7 +613,6 @@ def find_and_send_wishes():
          tomorrow.day, tomorrow.month)
     )
     results = cursor.fetchall()
-    db.close()
     
     log(f"Checking {len(results)} user(s)", level="info")
     thread_ts = None
@@ -632,13 +641,14 @@ def find_and_send_wishes():
                         dm_message = f"""🎉🎂 *Happy Birthday! * 🎈🎁
 Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
 🥳{famous_text}"""
-                        
-                        app.client.chat_postMessage(
-                            channel=user_id,
-                            text=dm_message
-                        )
-                        log(f"✅ Sent DM to {user_id}", level="info")
-                        
+                        try:
+                            app.client.chat_postMessage(
+                                channel=user_id,
+                                text=dm_message
+                            )
+                            log(f"✅ Sent DM to {user_id}", level="info")
+                        except Exception as e:
+                            log(f"Error sending DM to {user_id}: {e}", level="error", exc_info=True)
                         if thread_ts:  
                             send_birthday_to_thread(user_id, famous_person, thread_ts)
                         
@@ -657,9 +667,27 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
 
         except Exception as e:
             log(f"❌ Error processing {user_id}: {e}", level="error", exc_info=True)
-
-    if last_day_without_birthdays != today:
-        last_day_without_birthdays = today
+    
+    cursor.execute("""
+                   SELECT date FROM birthday_not_celebrated_log
+                   ORDER BY created_at DESC
+                   """)
+    logged_date = cursor.fetchone()
+    today = datetime.now().date().isoformat()
+    if logged_date and logged_date[0] == today:
+        log("Already logged today's streak status, skipping log insertion", level="info")
+        return
+    else:
+        cursor.execute(
+            '''
+            INSERT INTO birthday_not_celebrated_log (date)
+            VALUES (?)
+            ''', (today,)
+        )
+        db.commit()
+        
+        today = datetime.now()
+        
         db = connect_db()
         cursor = db.cursor()
         cursor.execute(
@@ -689,6 +717,7 @@ def run_birthday_not_celebrated_streak(celebrated_today):
         '''
     )
     result = cursor.fetchone()
+    
     current_streak = result[0] if result else 0
     if BIRTHDAY_CHANNEL:
         if celebrated_today:
@@ -735,8 +764,11 @@ def run_birthday_not_celebrated_streak(celebrated_today):
             else:
                 current_streak += 1
                 streak_message = birthday_celebration_streak_message_builder(datetime.now().strftime('%d %B, %Y'), current_streak)
-    
-        app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
+
+        try:
+            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
+        except Exception as e:
+            log(f"Error posting streak message: {e}", level="error", exc_info=True)
     
             
     cursor.execute(
@@ -814,10 +846,13 @@ def monthly_birthdays():
     birthday_list_message += f"\nTotal users with birthdays this month: {users}"
 
     if BIRTHDAY_CHANNEL:
-        app.client.chat_postMessage(
-            channel=BIRTHDAY_CHANNEL,
-            text=birthday_list_message
-        )
+        try:
+            app.client.chat_postMessage(
+                channel=BIRTHDAY_CHANNEL,
+                text=birthday_list_message
+            )
+        except Exception as e:
+            log(f"Error posting monthly birthday list: {e}", level="error", exc_info=True)
 
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
@@ -830,8 +865,13 @@ def run_scheduler():
     log("  Cache cleanup: Daily at 03:00 UTC")
     log("  Thread cleanup: Daily at 03:00 UTC")
     while True:
-        schedule.run_pending()
-        time.sleep(60)
+        try:
+            schedule.run_pending()
+            time.sleep(60)
+            log("Scheduler Running...", level="debug")
+        except Exception as e:
+            log(f"Error in scheduler: {e}", level="error", exc_info=True)
+            time.sleep(60)
     
 threading.Thread(target=run_scheduler, daemon=True).start()
 
