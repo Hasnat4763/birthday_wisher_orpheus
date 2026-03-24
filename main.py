@@ -11,6 +11,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 import pytz
 import logging
+from throttled import rate_limiter
 from logging.handlers import RotatingFileHandler
 from database import init, connect_db
 from calling_api import get_random_famous, format_birthday, clean
@@ -28,6 +29,9 @@ assert BOT_TOKEN, "BOT_TOKEN has not been set"
 assert BIRTHDAY_CHANNEL, "BIRTHDAY_CHANNEL_ID has not been set"
 assert ADMIN, "ADMIN_USER_ID has not been set"
 assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
+
+rate_limiter.per_sec(1)
+rate_limiter.per_min(30)
 
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
@@ -57,6 +61,22 @@ def log(e, level = "info", exc_info=False):
     elif level == "debug":
         logger.debug(f"{e}", exc_info=exc_info)
 
+"""
+Adding Rate Limits for Slack API calls    
+    
+"""
+
+#@rate_limiter.wrap
+#def ratelimited_postMessage(**kwargs):
+#    return app.client.chat_postMessage(**kwargs)
+
+#@rate_limiter.wrap
+#def ratelimited_user_info(**kwargs):
+#    return app.client.users_info(**kwargs)
+
+#@rate_limiter.wrap
+#def safe_message_update(**kwargs):
+#    return app.client.chat_update(**kwargs)
 
 
 
@@ -115,7 +135,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
 
 From your Slack team! 🥳{famous_text}"""
             try:
-                app.client.chat_postMessage(
+                ratelimited_postMessage(
                     channel=test_user_id,
                     text=dm_message
                 )
@@ -251,7 +271,7 @@ def handle_birthday_delete(ack, body):
     ack()
     user_id = body["user_id"]
     try:
-        app.client.chat_postMessage(
+        ratelimited_postMessage(
         channel=user_id,
         text="Are you sure you want to delete your birthday data?",
         blocks=[
@@ -303,7 +323,7 @@ def handle_confirm_delete(ack, body, client, logger):
     channel_id = body["channel"]["id"]
     user_id = body["user"]["id"]
     ts = body["message"]["ts"]
-    client.chat_update(channel=channel_id, ts=ts, text="Deleting your birthday data...")
+    safe_message_update(channel=channel_id, ts=ts, text="Deleting your birthday data...")
     try:
         db = connect_db()
         cursor = db.cursor()
@@ -315,7 +335,7 @@ def handle_confirm_delete(ack, body, client, logger):
         db.commit()
         db.close()
     except Exception as e:
-        client.chat_postMessage(channel=channel_id, text="There was a problem deleting your data." + str(e))
+        ratelimited_postMessage(channel=channel_id, text="There was a problem deleting your data." + str(e))
         log(f"Error occurred while deleting birthday data for {user_id}: {e}", level="error", exc_info=True)
 
 @app.action("cancel_delete")
@@ -324,7 +344,7 @@ def handle_cancel_delete(ack, body, client, logger):
     logger.info(body)
     channel_id = body["channel"]["id"]
     ts = body["message"]["ts"]
-    client.chat_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
+    safe_message_update(channel=channel_id, ts=ts, text="Ok not deleting anything.")
 
 
 @app.command("/birthday_sync_with_canvas")
@@ -375,7 +395,7 @@ def add_users_to_db(uid, data):
             log(f"Invalid date for {user_id}: {text}", level="error")
             return
     try:
-        userinfo = client.users_info(user=user_id)
+        userinfo = ratelimited_user_info(user=user_id)
     except Exception as e:
         log(f"Error fetching user info for {user_id}: {e}", level="error")
         return
@@ -468,7 +488,7 @@ def get_or_create_daily_thread(date_str):
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
             formatted_date = date_obj.strftime('%B %d, %Y')  # e.g., "December 29, 2025"
             try:
-                response = app.client.chat_postMessage(
+                response = ratelimited_postMessage(
                 channel=BIRTHDAY_CHANNEL,
                 text=f"🎉🎂 *Birthdays Today - {formatted_date}* 🎈🎁",
                 blocks=[
@@ -578,7 +598,7 @@ def send_birthday_to_thread(user_id, famous_person, thread_ts):
 
 Wishing you an amazing day filled with joy, laughter, and wonderful memories!{famous_text}"""
         try:
-            app.client.chat_postMessage(
+            ratelimited_postMessage(
             channel=BIRTHDAY_CHANNEL,
             thread_ts=thread_ts,
             text=message
@@ -642,7 +662,7 @@ def find_and_send_wishes():
 Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
 🥳{famous_text}"""
                         try:
-                            app.client.chat_postMessage(
+                            ratelimited_postMessage(
                                 channel=user_id,
                                 text=dm_message
                             )
@@ -766,7 +786,7 @@ def run_birthday_not_celebrated_streak(celebrated_today):
                 streak_message = birthday_celebration_streak_message_builder(datetime.now().strftime('%d %B, %Y'), current_streak)
 
         try:
-            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
+            ratelimited_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
         except Exception as e:
             log(f"Error posting streak message: {e}", level="error", exc_info=True)
     
@@ -847,7 +867,7 @@ def monthly_birthdays():
 
     if BIRTHDAY_CHANNEL:
         try:
-            app.client.chat_postMessage(
+            ratelimited_postMessage(
                 channel=BIRTHDAY_CHANNEL,
                 text=birthday_list_message
             )
