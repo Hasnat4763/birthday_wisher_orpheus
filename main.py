@@ -67,16 +67,16 @@ Adding Rate Limits for Slack API calls
 """
 
 #@rate_limiter.wrap
-#def ratelimited_postMessage(**kwargs):
-#    return app.client.chat_postMessage(**kwargs)
+def ratelimited_postMessage(**kwargs):
+    return app.client.chat_postMessage(**kwargs)
 
 #@rate_limiter.wrap
-#def ratelimited_user_info(**kwargs):
-#    return app.client.users_info(**kwargs)
+def ratelimited_user_info(**kwargs):
+    return app.client.users_info(**kwargs)
 
 #@rate_limiter.wrap
-#def safe_message_update(**kwargs):
-#    return app.client.chat_update(**kwargs)
+def safe_message_update(**kwargs):
+    return app.client.chat_update(**kwargs)
 
 
 
