@@ -78,7 +78,7 @@ def init():
     """
     CREATE TABLE IF NOT EXISTS birthday_not_celebrated_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT PRIMARY KEY,
+        date TEXT NOT NULL UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """

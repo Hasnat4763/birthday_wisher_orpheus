@@ -1,3 +1,6 @@
+import asyncio
+
+import aiohttp
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
@@ -19,6 +22,8 @@ load_dotenv()
 
 APP_TOKEN = os.getenv("APP_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+XOXC_TOKEN = os.getenv("XOXC_TOKEN")
+XOXD_TOKEN = os.getenv("XOXD_TOKEN")
 BIRTHDAY_CHANNEL = os.getenv("BIRTHDAY_CHANNEL_ID")
 ADMIN = os.getenv("ADMIN_USER_ID")
 ADMINS = [admin.strip() for admin in ADMIN.split(",")] if ADMIN else []
@@ -29,6 +34,7 @@ assert BOT_TOKEN, "BOT_TOKEN has not been set"
 assert BIRTHDAY_CHANNEL, "BIRTHDAY_CHANNEL_ID has not been set"
 assert ADMIN, "ADMIN_USER_ID has not been set"
 assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
+assert XOXC_TOKEN and XOXD_TOKEN, "XOXC_TOKEN and XOXD_TOKEN must be set for Canvas sync functionality"
 
 rate_limiter.per_sec(1)
 rate_limiter.per_min(30)
@@ -365,6 +371,121 @@ def handle_slack_canvas(ack, body, respond):
             synced_users.append(uid)
         success = len(synced_users)
     respond(f"Sync complete! Successfully synced {success} users. Synced users: {', '.join(synced_users)}")
+   
+@app.command("/get_channel_managers")
+def handle_get_channel_managers(ack, body, respond):
+    ack()
+    channel_id = body['channel_id']
+    if not channel_id:
+        respond("Please provide a channel ID. Usage: `/get_channel_managers CHANNEL_ID`")
+        return
+    managers = asyncio.run(get_channel_managers(channel_id))
+    if managers:
+        respond(f"Channel Managers for <#{channel_id}>: {', '.join(managers)}")
+    else:
+        respond(f"No channel managers found for <#{channel_id}> or an error occurred.")
+                
+def _decode_xoxd_token():
+    """Decode the URL-encoded XOXD token"""
+    xoxd = os.getenv("XOXD_TOKEN", "")
+    if not xoxd:
+        raise RuntimeError("XOXD_TOKEN not set in environment")
+    return xoxd.replace("%2F", "/").replace("%3D", "=")
+
+
+async def get_channel_managers(channel_id: str) -> list[str]:
+    """Fetch channel managers for a given channel using Slack admin API"""
+    try:
+        xoxd_decoded = _decode_xoxd_token()
+        
+        data = {
+            'token': XOXC_TOKEN,
+            'entity_id': channel_id,
+            'role_id': 'Rl0A',  # Channel manager role ID
+        }
+        
+        headers = {
+            'Cookie': f"d={xoxd_decoded}",
+            'Origin': 'https://app.slack.com',
+            'Referer': 'https://app.slack.com/client',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://hackclub.enterprise.slack.com/api/admin.roles.entity.listAssignments?slack_route=E09V59WQY1E%3AE09V59WQY1E",
+                data=data,
+                headers=headers
+            ) as resp:
+                res = await resp.json()
+                
+                if not res.get('ok'):
+                    error = res.get('error', 'Unknown error')
+                    log(f"❌ admin.roles.entity.listAssignments failed: {error}", level="error")
+                    return []
+                
+                role_assignments = res.get('role_assignments', [])
+                if not role_assignments:
+                    log(f"⚠️ No role assignments found for {channel_id}", level="warning")
+                    return []
+                
+                # Find the channel manager role assignment
+                assignment = next(
+                    (a for a in role_assignments if a.get('role_id') == 'Rl0A'),
+                    None
+                )
+                
+                if not assignment:
+                    log(f"⚠️ No Rl0A role found for {channel_id}", level="warning")
+                    return []
+                
+                managers = assignment.get('users', [])
+                log(f"✅ Found {len(managers)} manager(s) for {channel_id}", level="info")
+                return managers
+    
+    except Exception as e:
+        log(f"❌ Failed to get channel managers: {e}", level="error", exc_info=True)
+        return []
+    xoxd_token = XOXD_TOKEN.replace("%2F", "/").replace("%3D", "=")
+    data = {
+        'token': XOXC_TOKEN,
+        'entity_id': channel_id,
+        'role_id': 'Rl0A'
+    }
+    headers = {
+        'Cookie': f"d={xoxd_token}",
+        "Origin": "https://app.slack.com",
+        "Referer": "https://app.slack.com/client",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                 "https://hackclub.enterprise.slack.com/api/admin.roles.entity.listAssignments?slack_route=E09V59WQY1E%3AE09V59WQY1E",
+                data=data,
+                headers=headers
+            ) as resp:
+                res = await resp.json()
+                if not res.get('ok'):
+                    print(f"Error: {res.get('error', 'Unknown error')}")
+                    return []
+                role_assignments = res.get('role_assignments', [])
+                if not role_assignments:
+                    return []
+                assignment = next(
+                    (a for a in role_assignments if a.get('role_id') == 'Rl0A'),
+                    None
+                )
+                
+                if not assignment:
+                    return []
+                
+                return assignment.get('users', [])
+    
+    except Exception as e:
+        print(f"Failed to get channel managers for {channel_id}: {e}")
+        return []
 
 @app.error
 def global_error_handler(error, body, logger):
@@ -899,3 +1020,6 @@ threading.Thread(target=run_scheduler, daemon=True).start()
 if __name__ == "__main__":
     socketmodehandler =SocketModeHandler(app, APP_TOKEN)
     socketmodehandler.start()
+    
+    
+ 
