@@ -1,5 +1,4 @@
 import asyncio
-
 import aiohttp
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -14,7 +13,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 import pytz
 import logging
-from throttled import rate_limiter
+#from throttled import rate_limiter
 from logging.handlers import RotatingFileHandler
 from database import init, connect_db
 from calling_api import get_random_famous, format_birthday, clean
@@ -36,8 +35,8 @@ assert ADMIN, "ADMIN_USER_ID has not been set"
 assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
 assert XOXC_TOKEN and XOXD_TOKEN, "XOXC_TOKEN and XOXD_TOKEN must be set for Canvas sync functionality"
 
-rate_limiter.per_sec(1)
-rate_limiter.per_min(30)
+# rate_limiter.per_sec(1)
+# rate_limiter.per_min(30)
 
 app = App(token=BOT_TOKEN)
 client = WebClient(token=BOT_TOKEN)
