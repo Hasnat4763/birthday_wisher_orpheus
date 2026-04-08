@@ -405,10 +405,11 @@ async def get_channel_managers(channel_id: str) -> list[str]:
         }
         
         headers = {
-            'Cookie': f"d={xoxd_decoded}",
-            'Origin': 'https://app.slack.com',
-            'Referer': 'https://app.slack.com/client',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            "Cookie": f"d={xoxd_decoded};",
+            "Origin": "https://app.slack.com",
+            "Referer": "https://app.slack.com/client",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Accept": "*/*",
         }
         
         async with aiohttp.ClientSession() as session:
@@ -754,19 +755,13 @@ def find_and_send_wishes():
          tomorrow.day, tomorrow.month)
     )
     results = cursor.fetchall()
-    
     log(f"Checking {len(results)} user(s)", level="info")
     thread_ts = None
-
-    if BIRTHDAY_CHANNEL and results: 
-        today_str = today.strftime('%Y-%m-%d')
-        thread_ts = get_or_create_daily_thread(today_str)
-    
     for (user_id, day, month, tz) in results:
         try:
             if tz:
                 try: 
-                    user_timezone = pytz. timezone(tz)
+                    user_timezone = pytz.timezone(tz)
                     user_now = datetime.now(user_timezone)
                 except pytz.UnknownTimeZoneError:
                     log(f"⚠️ Unknown timezone '{tz}' for {user_id}", level="error")
@@ -774,6 +769,8 @@ def find_and_send_wishes():
             else:
                 user_now = datetime.now(pytz.utc)
             if user_now.day == day and user_now.month == month:
+                if BIRTHDAY_CHANNEL:
+                    thread_ts = get_or_create_daily_thread(user_now.strftime('%Y-%m-%d'))
                 if not check_if_wished(user_id, user_now.year, month, day):
                     wish_success = False
                     try:
