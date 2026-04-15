@@ -1,5 +1,3 @@
-import asyncio
-import aiohttp
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
@@ -21,8 +19,6 @@ load_dotenv()
 
 APP_TOKEN = os.getenv("APP_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-XOXC_TOKEN = os.getenv("XOXC_TOKEN")
-XOXD_TOKEN = os.getenv("XOXD_TOKEN")
 BIRTHDAY_CHANNEL = os.getenv("BIRTHDAY_CHANNEL_ID")
 ADMIN = os.getenv("ADMIN_USER_ID")
 ADMINS = [admin.strip() for admin in ADMIN.split(",")] if ADMIN else []
@@ -33,7 +29,7 @@ assert BOT_TOKEN, "BOT_TOKEN has not been set"
 assert BIRTHDAY_CHANNEL, "BIRTHDAY_CHANNEL_ID has not been set"
 assert ADMIN, "ADMIN_USER_ID has not been set"
 assert CANVAS_ID, "CANVAS_FILE_ID has not been set"
-assert XOXC_TOKEN and XOXD_TOKEN, "XOXC_TOKEN and XOXD_TOKEN must be set for Canvas sync functionality"
+
 
 # rate_limiter.per_sec(1)
 # rate_limiter.per_min(30)
@@ -378,23 +374,20 @@ def handle_get_channel_managers(ack, body, respond):
     if not channel_id:
         respond("Please provide a channel ID. Usage: `/get_channel_managers CHANNEL_ID`")
         return
-    managers = asyncio.run(get_channel_managers(channel_id))
+    managers = get_channel_managers(channel_id)
     if managers:
         respond(f"Channel Managers for <#{channel_id}>: {', '.join(managers)}")
     else:
         respond(f"No channel managers found for <#{channel_id}> or an error occurred.")
                 
-def _decode_xoxd_token():
-    """Decode the URL-encoded XOXD token"""
-    xoxd = os.getenv("XOXD_TOKEN", "")
-    if not xoxd:
-        raise RuntimeError("XOXD_TOKEN not set in environment")
-    return xoxd.replace("%2F", "/").replace("%3D", "=")
 
-
-def get_channel_managers(channel_id: str) -> list[str]:
-    """Fetch channel managers for a given channel using Slack admin API"""
-    return [None]
+def get_channel_managers(channel_id: str) -> str | None:
+    resp = app.client.conversations_info(channel=channel_id)
+    channel_owner = None
+    if resp.get("ok"):
+        channel_info = resp.get("channel", {})
+        channel_owner = channel_info.get("creator")
+    return channel_owner
 
 @app.error
 def global_error_handler(error, body, logger):
@@ -713,15 +706,21 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
 
         except Exception as e:
             log(f"❌ Error processing {user_id}: {e}", level="error", exc_info=True)
+    db.close()
     
+def check_and_update_streak():
+    db = connect_db()
+    cursor = db.cursor()    
     cursor.execute("""
                    SELECT date FROM birthday_not_celebrated_log
                    ORDER BY created_at DESC
+                   LIMIT 1
                    """)
     logged_date = cursor.fetchone()
     today = datetime.now().date().isoformat()
     if logged_date and logged_date[0] == today:
         log("Already logged today's streak status, skipping log insertion", level="info")
+        db.close()
         return
     else:
         cursor.execute(
@@ -899,6 +898,7 @@ def monthly_birthdays():
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
 schedule.every().day.at("00:00").do(monthly_birthdays)
+schedule.every().day.at("00:00").do(check_and_update_streak)
 
 
 def run_scheduler():
