@@ -731,11 +731,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
             ''', (today,)
         )
         db.commit()
-        
         today_datetime = datetime.now()
-        
-        db = connect_db()
-        cursor = db.cursor()
         cursor.execute(
             '''SELECT COUNT(*) FROM birthday_info WHERE day = ? AND month = ?'''
             ,(today_datetime.day, today_datetime.month)
