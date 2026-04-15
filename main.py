@@ -140,7 +140,7 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
 
 From your Slack team! 🥳{famous_text}"""
             try:
-                ratelimited_postMessage(
+                app.client.chat_postMessage(
                     channel=test_user_id,
                     text=dm_message
                 )
@@ -276,7 +276,7 @@ def handle_birthday_delete(ack, body):
     ack()
     user_id = body["user_id"]
     try:
-        ratelimited_postMessage(
+        app.client.chat_postMessage(
         channel=user_id,
         text="Are you sure you want to delete your birthday data?",
         blocks=[
@@ -340,7 +340,7 @@ def handle_confirm_delete(ack, body, client, logger):
         db.commit()
         db.close()
     except Exception as e:
-        ratelimited_postMessage(channel=channel_id, text="There was a problem deleting your data." + str(e))
+        app.client.chat_postMessage(channel=channel_id, text="There was a problem deleting your data." + str(e))
         log(f"Error occurred while deleting birthday data for {user_id}: {e}", level="error", exc_info=True)
 
 @app.action("cancel_delete")
@@ -392,100 +392,9 @@ def _decode_xoxd_token():
     return xoxd.replace("%2F", "/").replace("%3D", "=")
 
 
-async def get_channel_managers(channel_id: str) -> list[str]:
+def get_channel_managers(channel_id: str) -> list[str]:
     """Fetch channel managers for a given channel using Slack admin API"""
-    try:
-        xoxd_decoded = _decode_xoxd_token()
-        
-        data = {
-            'token': XOXC_TOKEN,
-            'entity_id': channel_id,
-            'role_id': 'Rl0A',  # Channel manager role ID
-        }
-        
-        headers = {
-            "Cookie": f"d={xoxd_decoded};",
-            "Origin": "https://app.slack.com",
-            "Referer": "https://app.slack.com/client",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://hackclub.enterprise.slack.com/api/admin.roles.entity.listAssignments?slack_route=E09V59WQY1E%3AE09V59WQY1E",
-                data=data,
-                headers=headers
-            ) as resp:
-                res = await resp.json()
-                
-                if not res.get('ok'):
-                    error = res.get('error', 'Unknown error')
-                    log(f"❌ admin.roles.entity.listAssignments failed: {error}", level="error")
-                    return []
-                
-                role_assignments = res.get('role_assignments', [])
-                if not role_assignments:
-                    log(f"⚠️ No role assignments found for {channel_id}", level="warning")
-                    return []
-                
-                # Find the channel manager role assignment
-                assignment = next(
-                    (a for a in role_assignments if a.get('role_id') == 'Rl0A'),
-                    None
-                )
-                
-                if not assignment:
-                    log(f"⚠️ No Rl0A role found for {channel_id}", level="warning")
-                    return []
-                
-                managers = assignment.get('users', [])
-                log(f"✅ Found {len(managers)} manager(s) for {channel_id}", level="info")
-                return managers
-    
-    except Exception as e:
-        log(f"❌ Failed to get channel managers: {e}", level="error", exc_info=True)
-        return []
-    xoxd_token = XOXD_TOKEN.replace("%2F", "/").replace("%3D", "=")
-    data = {
-        'token': XOXC_TOKEN,
-        'entity_id': channel_id,
-        'role_id': 'Rl0A'
-    }
-    headers = {
-        'Cookie': f"d={xoxd_token}",
-        "Origin": "https://app.slack.com",
-        "Referer": "https://app.slack.com/client",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        "Accept": "*/*",
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                 "https://hackclub.enterprise.slack.com/api/admin.roles.entity.listAssignments?slack_route=E09V59WQY1E%3AE09V59WQY1E",
-                data=data,
-                headers=headers
-            ) as resp:
-                res = await resp.json()
-                if not res.get('ok'):
-                    print(f"Error: {res.get('error', 'Unknown error')}")
-                    return []
-                role_assignments = res.get('role_assignments', [])
-                if not role_assignments:
-                    return []
-                assignment = next(
-                    (a for a in role_assignments if a.get('role_id') == 'Rl0A'),
-                    None
-                )
-                
-                if not assignment:
-                    return []
-                
-                return assignment.get('users', [])
-    
-    except Exception as e:
-        print(f"Failed to get channel managers for {channel_id}: {e}")
-        return []
+    return [None]
 
 @app.error
 def global_error_handler(error, body, logger):
@@ -609,7 +518,7 @@ def get_or_create_daily_thread(date_str):
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
             formatted_date = date_obj.strftime('%B %d, %Y')  # e.g., "December 29, 2025"
             try:
-                response = ratelimited_postMessage(
+                response = app.client.chat_postMessage(
                 channel=BIRTHDAY_CHANNEL,
                 text=f"🎉🎂 *Birthdays Today - {formatted_date}* 🎈🎁",
                 blocks=[
@@ -719,7 +628,7 @@ def send_birthday_to_thread(user_id, famous_person, thread_ts):
 
 Wishing you an amazing day filled with joy, laughter, and wonderful memories!{famous_text}"""
         try:
-            ratelimited_postMessage(
+            app.client.chat_postMessage(
             channel=BIRTHDAY_CHANNEL,
             thread_ts=thread_ts,
             text=message
@@ -779,7 +688,7 @@ def find_and_send_wishes():
 Wishing you an amazing day filled with joy, laughter, and wonderful memories! 
 🥳{famous_text}"""
                         try:
-                            ratelimited_postMessage(
+                            app.client.chat_postMessage(
                                 channel=user_id,
                                 text=dm_message
                             )
@@ -903,7 +812,7 @@ def run_birthday_not_celebrated_streak(celebrated_today):
                 streak_message = birthday_celebration_streak_message_builder(datetime.now().strftime('%d %B, %Y'), current_streak)
 
         try:
-            ratelimited_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
+            app.client.chat_postMessage(channel=BIRTHDAY_CHANNEL, blocks=streak_message)
         except Exception as e:
             log(f"Error posting streak message: {e}", level="error", exc_info=True)
     
@@ -984,7 +893,7 @@ def monthly_birthdays():
 
     if BIRTHDAY_CHANNEL:
         try:
-            ratelimited_postMessage(
+            app.client.chat_postMessage(
                 channel=BIRTHDAY_CHANNEL,
                 text=birthday_list_message
             )
