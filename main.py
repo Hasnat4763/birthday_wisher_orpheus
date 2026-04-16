@@ -11,7 +11,6 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 import pytz
 import logging
-#from throttled import rate_limiter
 from logging.handlers import RotatingFileHandler
 from database import init, connect_db
 from calling_api import get_random_famous, format_birthday, clean
@@ -741,7 +740,7 @@ def check_and_update_streak():
             run_birthday_not_celebrated_streak(celebrated_today=False)
         else:
             run_birthday_not_celebrated_streak(celebrated_today=True)
-    
+    monthly_birthdays()
 def daily_cleanup():
     log(f"\nRunning daily cache cleanup at {datetime.now().strftime('%Y-%m-%d %H:%M')}", level="info")
     deleted = clean(days=90)
@@ -897,8 +896,7 @@ def monthly_birthdays():
 
 schedule.every().day.at("03:00").do(daily_cleanup)
 schedule.every().hour.do(find_and_send_wishes)
-schedule.every().day.at("00:00").do(monthly_birthdays)
-schedule.every().day.at("00:00").do(check_and_update_streak)
+schedule.every().day.at("00:05").do(check_and_update_streak)
 
 
 def run_scheduler():
