@@ -129,7 +129,7 @@ def format_birthday(info):
         desc_short = sentences[0]
         if len(desc_short) > 200:
             desc_short = desc_short[:197] + "..."
-        elif not desc_short. endswith('.'):
+        elif not desc_short.endswith('.'):
             desc_short += "."
         
         message += f"\n_{desc_short}_"

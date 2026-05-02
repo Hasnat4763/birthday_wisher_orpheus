@@ -12,7 +12,8 @@ def init():
         user_id TEXT PRIMARY KEY,
         day INTEGER NOT NULL,
         month INTEGER NOT NULL,
-        tz TEXT NOT NULL
+        tz TEXT NOT NULL,
+        birthday_channels TEXT NOT NULL
     )
     """
     )

@@ -1,3 +1,4 @@
+import json
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
@@ -366,27 +367,62 @@ def handle_slack_canvas(ack, body, respond):
         success = len(synced_users)
     respond(f"Sync complete! Successfully synced {success} users. Synced users: {', '.join(synced_users)}")
    
-@app.command("/get_channel_managers")
-def handle_get_channel_managers(ack, body, respond):
-    ack()
-    channel_id = body['channel_id']
-    if not channel_id:
-        respond("Please provide a channel ID. Usage: `/get_channel_managers CHANNEL_ID`")
-        return
-    managers = get_channel_managers(channel_id)
-    if managers:
-        respond(f"Channel Managers for <#{channel_id}>: {', '.join(managers)}")
-    else:
-        respond(f"No channel managers found for <#{channel_id}> or an error occurred.")
-                
-
-def get_channel_managers(channel_id: str) -> str | None:
-    resp = app.client.conversations_info(channel=channel_id)
-    channel_owner = None
-    if resp.get("ok"):
+def handle_get_channel_managers(channel_id):
+    try:
+        resp = app.client.conversations_info(channel=channel_id)
+        if not resp.get('ok'):
+            return(f"Failed to fetch channel info: {resp.get('error', 'Unknown error')}")
+        channel_owner = None
         channel_info = resp.get("channel", {})
         channel_owner = channel_info.get("creator")
-    return channel_owner
+        if channel_owner:
+            log(f"Channel owner for {channel_id}: {channel_owner}", level="info")
+            return(channel_owner)
+        else:
+            return None
+    except Exception as e:
+        log(f"Error fetching channel info for {channel_id}: {e}", level="error", exc_info=True)
+        return None
+
+@app.command("/birthday_channel_add")
+def handle_birthday_channel_add(ack, body, respond):
+    ack()
+    channel_id = body.get('channel_id')
+    user_id = body.get('user_id')
+    
+    text_user_id = body.get('text').split('|')[0].strip('<>@@')
+    
+    channel_owner = handle_get_channel_managers(channel_id)
+    if not channel_owner:
+        respond("Could not verify channel ownership. Please ensure the bot has access to the channel and try again.")
+        return
+    
+    if user_id not in ADMINS or user_id != channel_owner:
+        respond("You are not a channel owner of this channel or admin of this bot.")
+        return
+    db = connect_db()
+    cursor = db.cursor()
+    cursor.execute('''
+                   SELECT birthday_channels FROM birthday_info WHERE user_id = ?
+                   
+                   ''',(user_id,))
+    row = cursor.fetchone()
+    if row:
+        channels = json.loads(row[0])
+        if channel_id not in channels:
+            channels.append(channel_id)
+    else:
+        respond("The user does not have their Birthday registered yet.")
+        return
+    
+    cursor.execute('''
+                   UPDATE birthday_info SET birthday_channels = ? WHERE user_id = ?
+                   ''', 
+                   (json.dumps(channels), user_id))
+    db.commit()
+    db.close()
+        
+
 
 @app.error
 def global_error_handler(error, body, logger):
@@ -631,6 +667,15 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!{fa
     except Exception as e:
         log(f"{e}", level="error", exc_info=True)
 
+def send_wishes_to_personal_channels(user_id, channels, message):
+    for channel in channels:
+        try:
+            app.client.chat_postMessage(
+                channel=channel,
+                text=message
+            )
+        except Exception as e:
+            log(f"Error sending birthday wish for {user_id} to channel {channel}: {e}", level="error", exc_info=True)
 
 def find_and_send_wishes():
     now = datetime.now(pytz.utc)
@@ -645,7 +690,7 @@ def find_and_send_wishes():
     
     cursor.execute(
         '''
-        SELECT user_id, day, month, tz FROM birthday_info WHERE
+        SELECT user_id, day, month, tz, birthday_channels FROM birthday_info WHERE
         (day = ? AND month = ?) OR
         (day = ? AND month = ?) OR
         (day = ? AND month = ?)
@@ -657,7 +702,7 @@ def find_and_send_wishes():
     results = cursor.fetchall()
     log(f"Checking {len(results)} user(s)", level="info")
     thread_ts = None
-    for (user_id, day, month, tz) in results:
+    for (user_id, day, month, tz, birthday_channels) in results:
         try:
             if tz:
                 try: 
@@ -684,11 +729,14 @@ Wishing you an amazing day filled with joy, laughter, and wonderful memories!
                                 channel=user_id,
                                 text=dm_message
                             )
+                            
                             log(f"✅ Sent DM to {user_id}", level="info")
                         except Exception as e:
                             log(f"Error sending DM to {user_id}: {e}", level="error", exc_info=True)
                         if thread_ts:  
                             send_birthday_to_thread(user_id, famous_person, thread_ts)
+                        if birthday_channels:
+                            send_wishes_to_personal_channels(user_id, birthday_channels, dm_message)
                         
                         wish_success = True
                         
