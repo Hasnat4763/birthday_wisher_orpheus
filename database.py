@@ -6,6 +6,10 @@ def connect_db():
 def init():
     db = connect_db()
     cursor = db.cursor()
+    try:
+        cursor.execute("ALTER TABLE birthday_info ADD COLUMN birthday_channels TEXT DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass
     cursor.execute(
     """
     CREATE TABLE IF NOT EXISTS birthday_info (
@@ -13,7 +17,7 @@ def init():
         day INTEGER NOT NULL,
         month INTEGER NOT NULL,
         tz TEXT NOT NULL,
-        birthday_channels TEXT NOT NULL
+        birthday_channels TEXT DEFAULT '[]'
     )
     """
     )

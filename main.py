@@ -170,7 +170,6 @@ From your Slack team! 🥳{famous_text}"""
 @app.command("/birthday_register")
 def handle_birthday_register(ack, body, respond):
     ack()
-    print(body)
     user_id = body["user_id"]
     text = body["text"]
     if text == "":
@@ -318,7 +317,7 @@ def handle_birthday_delete(ack, body):
         return
     
 @app.action("confirm_delete")
-def handle_confirm_delete(ack, body, client, logger):
+def handle_confirm_delete(ack, body, logger):
     ack()
     logger.info(body)
     channel_id = body["channel"]["id"]
@@ -389,10 +388,18 @@ def handle_birthday_channel_add(ack, body, respond):
     ack()
     channel_id = body.get('channel_id')
     user_id = body.get('user_id')
+    text_user_id = None
+
+    if channel_id == BIRTHDAY_CHANNEL:
+        respond("THIS IS THE BIRTHDAY CHANNEL ALREADY AND NOT YOUR PERSONAL CHANNEL")
+        return
     
-    text_user_id = body.get('text').split('|')[0].strip('<>@@')
+    if body.get("text") and len(body.get("text").split('|')) > 0:
+        text_user_id = body.get("text").split('|')[0].strip('<>@')
+        log(f"Received channel add request for user {text_user_id} in channel {channel_id}", level="info")
     
     channel_owner = handle_get_channel_managers(channel_id)
+    
     if not channel_owner:
         respond("Could not verify channel ownership. Please ensure the bot has access to the channel and try again.")
         return
@@ -400,8 +407,15 @@ def handle_birthday_channel_add(ack, body, respond):
     if user_id not in ADMINS or user_id != channel_owner:
         respond("You are not a channel owner of this channel or admin of this bot.")
         return
+    
+    
+
+    
     db = connect_db()
     cursor = db.cursor()
+    if text_user_id:
+        user_id = text_user_id
+        
     cursor.execute('''
                    SELECT birthday_channels FROM birthday_info WHERE user_id = ?
                    
@@ -411,14 +425,16 @@ def handle_birthday_channel_add(ack, body, respond):
         channels = json.loads(row[0])
         if channel_id not in channels:
             channels.append(channel_id)
-    else:
-        respond("The user does not have their Birthday registered yet.")
-        return
-    
-    cursor.execute('''
+            cursor.execute('''
                    UPDATE birthday_info SET birthday_channels = ? WHERE user_id = ?
                    ''', 
                    (json.dumps(channels), user_id))
+            log(f"Adding channel {channel_id} to user {user_id}'s birthday channels", level="info")
+        log(f"User {user_id} current birthday channels: {channels}", level="info")
+    else:
+        respond("The user does not have their Birthday registered yet.")
+        return
+    respond(f"Channel <#{channel_id}> added to <@{user_id}>'s birthday channels!")
     db.commit()
     db.close()
         
