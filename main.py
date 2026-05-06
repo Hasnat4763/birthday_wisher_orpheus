@@ -202,27 +202,34 @@ def handle_birthday_register(ack, body, respond):
 @app.command("/birthday_check")
 def handle_birthday_check(ack, body, respond):
     ack()
+    db = connect_db()
+    cursor = db.cursor()
     user_id = body["user_id"]
+    text_user_id = None
+    if body['text'] and len(body['text'].split('|')) > 0:
+        text_user_id = body['text'].split('|')[0].strip('<>@')
     try:
-        db = connect_db()
-        cursor = db.cursor()
+        
         cursor.execute(
             '''
             SELECT day, month, tz FROM birthday_info WHERE user_id = ?
-            ''', (user_id,)
+            ''', (text_user_id if text_user_id else user_id,)
             )
         result = cursor.fetchone()
-        db.close()
-        log(f"Birthday check for {user_id}: {result}", level="info")
+        
+        log(f"Birthday check for {text_user_id if text_user_id else user_id}: {result}", level="info")
         if result:
             mm, dd, tz = result
             respond(f"You set your birthday as: {mm}/{dd} (Timezone: {tz})")
         else:
             respond("Your data doesn't exist yet.")
     except Exception as e:
-        log(f"Error occurred while checking birthday for {user_id}: {e}", level="error", exc_info=True)
+        log(f"Error occurred while checking birthday for {text_user_id if text_user_id else user_id}: {e}", level="error", exc_info=True)
         respond("There is a problem contact someone")
         return
+    finally:
+        cursor.close()
+        db.close()
 
 @app.command("/birthday_list")
 def handle_birthday_list(ack, body, respond):
@@ -389,56 +396,86 @@ def handle_birthday_channel_add(ack, body, respond):
     channel_id = body.get('channel_id')
     user_id = body.get('user_id')
     text_user_id = None
-
-    if channel_id == BIRTHDAY_CHANNEL:
-        respond("THIS IS THE BIRTHDAY CHANNEL ALREADY AND NOT YOUR PERSONAL CHANNEL")
-        return
-    
-    if body.get("text") and len(body.get("text").split('|')) > 0:
-        text_user_id = body.get("text").split('|')[0].strip('<>@')
-        log(f"Received channel add request for user {text_user_id} in channel {channel_id}", level="info")
-    
-    channel_owner = handle_get_channel_managers(channel_id)
-    
-    if not channel_owner:
-        respond("Could not verify channel ownership. Please ensure the bot has access to the channel and try again.")
-        return
-    
-    if user_id not in ADMINS or user_id != channel_owner:
-        respond("You are not a channel owner of this channel or admin of this bot.")
-        return
-    
-    
-
-    
     db = connect_db()
     cursor = db.cursor()
-    if text_user_id:
-        user_id = text_user_id
+    try:
+        if channel_id == BIRTHDAY_CHANNEL:
+            respond("THIS IS THE BIRTHDAY CHANNEL ALREADY AND NOT YOUR PERSONAL CHANNEL")
+            return
         
-    cursor.execute('''
-                   SELECT birthday_channels FROM birthday_info WHERE user_id = ?
-                   
-                   ''',(user_id,))
-    row = cursor.fetchone()
-    if row:
-        channels = json.loads(row[0])
-        if channel_id not in channels:
-            channels.append(channel_id)
-            cursor.execute('''
-                   UPDATE birthday_info SET birthday_channels = ? WHERE user_id = ?
-                   ''', 
-                   (json.dumps(channels), user_id))
-            log(f"Adding channel {channel_id} to user {user_id}'s birthday channels", level="info")
-        log(f"User {user_id} current birthday channels: {channels}", level="info")
-    else:
-        respond("The user does not have their Birthday registered yet.")
-        return
-    respond(f"Channel <#{channel_id}> added to <@{user_id}>'s birthday channels!")
-    db.commit()
-    db.close()
+        if body.get("text") and len(body.get("text").split('|')) > 0:
+            text_user_id = body.get("text").split('|')[0].strip('<>@')
+            log(f"Received channel add request for user {text_user_id} in channel {channel_id}", level="info")
         
+        channel_owner = handle_get_channel_managers(channel_id)
+        
+        if not channel_owner:
+            respond("Could not verify channel ownership. Please ensure the bot has access to the channel and try again.")
+            return
+        
+        if user_id not in ADMINS and user_id != channel_owner:
+            respond("You are not a channel owner of this channel or admin of this bot.")
+            return
 
+        if text_user_id:
+            user_id = text_user_id
+            
+        cursor.execute('''
+                    SELECT birthday_channels FROM birthday_info WHERE user_id = ?
+                    
+                    ''',(user_id,))
+        row = cursor.fetchone()
+        if row:
+            channels = json.loads(row[0])
+            if channel_id not in channels:
+                channels.append(channel_id)
+                cursor.execute('''
+                    UPDATE birthday_info SET birthday_channels = ? WHERE user_id = ?
+                    ''', 
+                    (json.dumps(channels), user_id))
+                log(f"Adding channel {channel_id} to user {user_id}'s birthday channels", level="info")
+            log(f"User {user_id} current birthday channels: {channels}", level="info")
+        else:
+            respond("The user does not have their Birthday registered yet.")
+            return
+        respond(f"Channel <#{channel_id}> added to <@{user_id}>'s birthday channels!")
+        db.commit()
+    finally:
+        cursor.close()
+        db.close()
+
+@app.command("/birthday_channel_remove")
+def handle_birthday_channel_remove(ack, body, respond):
+    ack()
+    channel_id = body["channel_id"]
+    user_id = body['user_id']
+    db = connect_db()
+    cursor = db.cursor()
+    try:
+        
+        cursor.execute('''
+                    SELECT birthday_channels FROM birthday_info WHERE user_id = ?
+                    ''',(user_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:
+            respond("You don't have your birthday or that channel registered yet.")
+            return
+        channels = json.loads(row[0])
+        if channel_id in channels:
+            channels.remove(channel_id)
+            row_json = json.dumps(channels)
+            cursor.execute('''
+                        UPDATE birthday_info SET birthday_channels = ? WHERE user_id = ?
+                        ''', (row_json, user_id))
+            db.commit()
+            respond(f"Channel <#{channel_id}> removed from your list!")
+            log(f"Removing channel {channel_id} from user {user_id}'s birthday channels", level="info")
+        else:
+            respond(f"Channel <#{channel_id}> is not in your list.")
+            log(f"Channel {channel_id} not found in user {user_id}'s birthday channels", level="info")
+    finally:
+        cursor.close()
+        db.close()
 
 @app.error
 def global_error_handler(error, body, logger):
@@ -449,6 +486,8 @@ def add_users_to_db(uid, data):
     text = data.get("birthday", "")
     user_tz = None  
     userinfo = None
+    db = connect_db()
+    cursor = db.cursor()
     
     if len(text.split("/")) == 3:
         MM, DD, L = text.split("/")
@@ -484,18 +523,20 @@ def add_users_to_db(uid, data):
         user_tz = "UTC"
         log(f"No timezone found for {user_id}, defaulting to UTC", level="warning")
     try:
-        db = connect_db()
-        cursor = db.cursor()
         cursor.execute(
                 """
                 INSERT OR REPLACE INTO birthday_info (user_id, day, month, tz)
                 VALUES (?,?,?,?)
                 """, (user_id, DD, MM, user_tz)
             )
-        db.commit()
-        db.close()
+        
     except Exception as e:
         log(f"{e}", level="error", exc_info=True)
+    
+    finally:
+        db.commit()
+        cursor.close()
+        db.close()
     
     log(f"Registered birthday for {user_id}: {MM}/{DD}", level="info")
 
@@ -596,7 +637,7 @@ def get_or_create_daily_thread(date_str):
             )
             db.commit()
             log(f"✅ Created new thread for {date_str}", level="info")
-        
+        cursor.close()
         db.close()
         return thread_ts
         
@@ -612,9 +653,9 @@ def log_wished(user_id, year, month, day, status=True):
         db = connect_db()
         cursor = db.cursor()
         cursor.execute(
-    """INSERT OR REPLACE INTO birthday_log (user_id, year, month, day, status, time)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    """,
+        """INSERT OR REPLACE INTO birthday_log (user_id, year, month, day, status, time)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
         (user_id, year, month, day, status)
         )
         db.commit()
